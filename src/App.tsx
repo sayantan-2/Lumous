@@ -15,6 +15,7 @@ function App() {
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexingProgress, setIndexingProgress] = useState<string>("");
   const [includedFolders, setIncludedFolders] = useState<string[]>([]);
+  const [isSidebarSlim, setIsSidebarSlim] = useState(false);
   const queryClient = useQueryClient();
 
   // Listen for indexing events
@@ -231,6 +232,8 @@ function App() {
         indexingProgress={indexingProgress}
         includedFolders={includedFolders}
         onFolderInclusionChange={handleFolderInclusionChange}
+        isSlim={isSidebarSlim}
+        onToggleSlim={() => setIsSidebarSlim(!isSidebarSlim)}
       />
 
       <div className="flex-1 flex flex-col overflow-hidden">

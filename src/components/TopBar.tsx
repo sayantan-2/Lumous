@@ -1,7 +1,4 @@
-import { FolderOpen, Settings } from "lucide-react";
-import { Button } from "./ui/Button";
 import { SearchBar } from "./SearchBar";
-import { open } from '@tauri-apps/plugin-dialog';
 
 interface TopBarProps {
   folderPath: string;
@@ -11,22 +8,6 @@ interface TopBarProps {
 }
 
 export function TopBar({ folderPath, onFolderChange, fileCount, onSearch }: TopBarProps) {
-  const handleSelectFolder = async () => {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: 'Select Photo Folder'
-      });
-      
-      if (selected) {
-        onFolderChange(selected);
-      }
-    } catch (error) {
-      console.error("Failed to select folder:", error);
-    }
-  };
-
   const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
 
   return (
@@ -45,21 +26,6 @@ export function TopBar({ folderPath, onFolderChange, fileCount, onSearch }: TopB
 
       <div className="flex-1 max-w-md mx-4">
         <SearchBar onSearch={onSearch} />
-      </div>
-
-      <div className="flex items-center space-x-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleSelectFolder}
-        >
-          <FolderOpen className="w-4 h-4 mr-2" />
-          Change Folder
-        </Button>
-        
-        <Button variant="ghost" size="icon">
-          <Settings className="w-4 h-4" />
-        </Button>
       </div>
     </header>
   );

@@ -16,6 +16,11 @@ interface ImageViewerProps {
 export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChange }: ImageViewerProps) {
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [showControls, setShowControls] = useState(true);
   const currentFile = files[currentIndex];
 
   useEffect(() => {
@@ -58,6 +63,53 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const resetTransforms = () => {
     setZoom(1);
     setRotation(0);
+    setPanX(0);
+    setPanY(0);
+  };
+
+  // Reset transforms when image changes
+  useEffect(() => {
+    resetTransforms();
+    setShowControls(true);
+  }, [currentIndex]);
+
+  // Mouse event handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom > 1) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
+      e.preventDefault();
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging && zoom > 1) {
+      setPanX(e.clientX - dragStart.x);
+      setPanY(e.clientY - dragStart.y);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleDoubleClick = () => {
+    if (zoom === 1) {
+      setZoom(2);
+    } else {
+      resetTransforms();
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setZoom(prev => Math.max(0.1, Math.min(5, prev * delta)));
+  };
+
+  const handleImageClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowControls(!showControls);
   };
 
   const handlePrevious = () => {
@@ -79,9 +131,17 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const fileName = currentFile.path.split(/[/\\]/).pop() || currentFile.path;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center">
+    <div 
+      className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/50 to-transparent p-4">
+      <div className={cn(
+        "absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-black/50 to-transparent p-4 transition-opacity duration-300",
+        !showControls && "opacity-0 pointer-events-none"
+      )}>
         <div className="flex items-center justify-between text-white">
           <div className="flex-1">
             <h2 className="text-lg font-medium truncate">{fileName}</h2>
@@ -110,9 +170,10 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         variant="ghost"
         size="lg"
         className={cn(
-          "absolute left-4 top-1/2 -translate-y-1/2 z-10",
+          "absolute left-4 top-1/2 -translate-y-1/2 z-10 transition-opacity duration-300",
           "text-white hover:bg-white/20",
-          currentIndex === 0 && "opacity-50 cursor-not-allowed"
+          currentIndex === 0 && "opacity-50 cursor-not-allowed",
+          !showControls && "opacity-0 pointer-events-none"
         )}
         onClick={handlePrevious}
         disabled={currentIndex === 0}
@@ -124,9 +185,10 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         variant="ghost"
         size="lg"
         className={cn(
-          "absolute right-4 top-1/2 -translate-y-1/2 z-10",
+          "absolute right-4 top-1/2 -translate-y-1/2 z-10 transition-opacity duration-300",
           "text-white hover:bg-white/20",
-          currentIndex === files.length - 1 && "opacity-50 cursor-not-allowed"
+          currentIndex === files.length - 1 && "opacity-50 cursor-not-allowed",
+          !showControls && "opacity-0 pointer-events-none"
         )}
         onClick={handleNext}
         disabled={currentIndex === files.length - 1}
@@ -135,7 +197,10 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       </Button>
 
       {/* Controls */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10">
+      <div className={cn(
+        "absolute bottom-4 left-1/2 -translate-x-1/2 z-10 transition-opacity duration-300",
+        !showControls && "opacity-0 pointer-events-none"
+      )}>
         <div className="flex items-center space-x-2 bg-black/50 rounded-lg p-2">
           <Button
             variant="ghost"
@@ -177,17 +242,26 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       </div>
 
       {/* Image */}
-      <div className="flex-1 flex items-center justify-center p-16">
+      <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
         <img
           src={convertFileSrc(currentFile.path)}
           alt={fileName}
-          className="max-w-full max-h-full object-contain transition-transform duration-200"
+          className={cn(
+            "max-w-[calc(100vw-4rem)] max-h-[calc(100vh-12rem)] object-contain transition-transform duration-200",
+            zoom > 1 ? "cursor-grab" : "cursor-pointer",
+            isDragging && "cursor-grabbing"
+          )}
           style={{
-            transform: `scale(${zoom}) rotate(${rotation}deg)`,
+            transform: `scale(${zoom}) rotate(${rotation}deg) translate(${panX / zoom}px, ${panY / zoom}px)`,
           }}
+          onMouseDown={handleMouseDown}
+          onDoubleClick={handleDoubleClick}
+          onWheel={handleWheel}
+          onClick={handleImageClick}
           onError={(e) => {
             console.error('Failed to load image:', currentFile.path);
           }}
+          draggable={false}
         />
       </div>
     </div>

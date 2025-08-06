@@ -215,7 +215,7 @@ export function FolderTree({
               "truncate text-sm",
               !isIndexed && "text-muted-foreground"
             )} title={node.path}>
-              {node.name} {!isIndexed && "(parent)"}
+              {node.name}
             </span>
           </Button>
         </div>
