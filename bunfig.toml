@@ -1,0 +1,23 @@
+# bunfig.toml – Bun configuration for Local Gallery
+
+[run]
+dev          = "vite"
+build        = "vite build"
+preview      = "vite preview"
+tauri        = "tauri dev"
+tauri-build  = "tauri build"
+test         = "jest"
+"test:watch" = "jest --watch"
+e2e          = "playwright test"
+lint         = "eslint src --ext .ts,.tsx"
+"lint:fix"   = "eslint src --ext .ts,.tsx --fix"
+format       = "prettier --write ."
+"format:check" = "prettier --check ."
+typecheck    = "tsc --noEmit"
+
+[install]
+# Cache directory for faster installs
+cache = "node_modules/.cache/bun"
+
+# Optional: specify registry
+# registry = "https://registry.npmjs.org/"
