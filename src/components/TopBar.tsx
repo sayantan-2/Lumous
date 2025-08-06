@@ -1,46 +1,50 @@
-import { useState } from "react";
-import { Search, FolderOpen, Settings, Grid, Heart } from "lucide-react";
+import { FolderOpen, Settings } from "lucide-react";
 import { Button } from "./ui/Button";
+import { SearchBar } from "./SearchBar";
+import { open } from '@tauri-apps/plugin-dialog';
 
 interface TopBarProps {
   folderPath: string;
   onFolderChange: (folderPath: string) => void;
   fileCount: number;
+  onSearch: (query: string) => void;
 }
 
-export function TopBar({ folderPath, onFolderChange, fileCount }: TopBarProps) {
-  const [searchQuery, setSearchQuery] = useState("");
-
+export function TopBar({ folderPath, onFolderChange, fileCount, onSearch }: TopBarProps) {
   const handleSelectFolder = async () => {
     try {
-      // TODO: Replace with actual Tauri dialog
-      const demoPath = "C:\\Users\\Demo\\Documents";
-      onFolderChange(demoPath);
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select Photo Folder'
+      });
+      
+      if (selected) {
+        onFolderChange(selected);
+      }
     } catch (error) {
       console.error("Failed to select folder:", error);
     }
   };
 
+  const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
+
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b bg-card">
       <div className="flex items-center space-x-4">
         <h1 className="text-xl font-semibold">Local Gallery</h1>
-        <span className="text-sm text-muted-foreground">
-          {fileCount} images
-        </span>
+        <div className="flex flex-col">
+          <span className="text-sm text-muted-foreground">
+            {fileCount} images
+          </span>
+          <span className="text-xs text-muted-foreground truncate max-w-48">
+            {folderName}
+          </span>
+        </div>
       </div>
 
       <div className="flex-1 max-w-md mx-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search images..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </div>
+        <SearchBar onSearch={onSearch} />
       </div>
 
       <div className="flex items-center space-x-2">

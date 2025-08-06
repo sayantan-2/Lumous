@@ -47,34 +47,19 @@ export interface Resolution {
 }
 
 export interface Album {
-  id: string;
+  id: number;
   name: string;
-  description?: string;
-  cover_image?: string;
-  created: string;
-  modified: string;
-  file_count: number;
+  created_at: number;
 }
 
 export interface Tag {
-  id: string;
+  id: number;
   name: string;
-  color?: string;
-  created: string;
 }
 
-export interface AppSettings {
-  theme: "light" | "dark" | "system";
-  thumbnailSize: number;
-  defaultFolder: string | null;
-  cacheLocation: string | null;
-}
-
-export interface IndexResult {
-  total_files: number;
-  indexed_files: number;
-  skipped_files: number;
-  errors: string[];
+export interface Rating {
+  file_id: number;
+  stars: number;
 }
 
 export interface EditOperation {

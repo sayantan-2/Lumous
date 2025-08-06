@@ -1,6 +1,5 @@
 mod commands;
 mod models;
-mod database;
 mod indexer;
 mod thumbnail;
 
@@ -11,14 +10,24 @@ pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
-    .plugin(tauri_plugin_log::Builder::default()
-      .level(log::LevelFilter::Info)
-      .build())
+    .setup(|app| {
+      if cfg!(debug_assertions) {
+        app.handle().plugin(
+          tauri_plugin_log::Builder::default()
+            .level(log::LevelFilter::Info)
+            .build(),
+        )?;
+      }
+      Ok(())
+    })
     .invoke_handler(tauri::generate_handler![
       get_settings,
       update_settings,
       index_folder,
+      index_folder_streaming,
       get_files,
+      is_folder_indexed,
+      get_indexed_folders,
       get_thumbnail,
       create_album,
       add_to_album,

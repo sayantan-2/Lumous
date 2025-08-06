@@ -14,25 +14,18 @@ export function WelcomeScreen({ onFolderSelect, defaultFolder }: WelcomeScreenPr
   const handleSelectFolder = async () => {
     setIsSelecting(true);
     try {
-      console.log('Opening folder dialog...');
       const selected = await open({
         directory: true,
         multiple: false,
         title: 'Select Photo Folder'
       });
-      
-      console.log('Dialog result:', selected);
-      
+
       if (selected) {
         console.log('Selected folder:', selected);
         onFolderSelect(selected);
-      } else {
-        console.log('No folder selected or dialog was cancelled');
       }
     } catch (error) {
       console.error("Failed to select folder:", error);
-      // Add alert for debugging
-      alert(`Error: ${error}`);
     } finally {
       setIsSelecting(false);
     }
@@ -70,7 +63,7 @@ export function WelcomeScreen({ onFolderSelect, defaultFolder }: WelcomeScreenPr
 
         {/* Action buttons */}
         <div className="space-y-4">
-          <Button 
+          <Button
             onClick={handleSelectFolder}
             disabled={isSelecting}
             className="w-full"
@@ -81,7 +74,7 @@ export function WelcomeScreen({ onFolderSelect, defaultFolder }: WelcomeScreenPr
           </Button>
 
           {defaultFolder && (
-            <Button 
+            <Button
               onClick={handleOpenDefault}
               variant="outline"
               className="w-full"
@@ -92,7 +85,7 @@ export function WelcomeScreen({ onFolderSelect, defaultFolder }: WelcomeScreenPr
             </Button>
           )}
 
-          <Button 
+          <Button
             variant="ghost"
             className="w-full"
             size="lg"
@@ -113,7 +106,7 @@ export function WelcomeScreen({ onFolderSelect, defaultFolder }: WelcomeScreenPr
               Index thousands of images in seconds
             </p>
           </div>
-          
+
           <div className="text-center space-y-2">
             <div className="w-12 h-12 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
               <FolderOpen className="w-6 h-6 text-primary" />

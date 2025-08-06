@@ -1,16 +1,71 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileGrid } from "./components/FileGrid";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { AppSettings, FileMeta } from "./types";
 
 function App() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<"grid" | "albums">("grid");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [indexingProgress, setIndexingProgress] = useState<string>("");
+  const [includedFolders, setIncludedFolders] = useState<string[]>([]);
   const queryClient = useQueryClient();
+
+  // Listen for indexing events
+  useEffect(() => {
+    const setupEventListeners = async () => {
+      // Listen for indexing progress
+      const progressUnlisten = await listen('indexing-progress', (event) => {
+        setIndexingProgress(event.payload as string);
+      });
+
+      // Listen for indexing started
+      const startedUnlisten = await listen('indexing-started', (event) => {
+        setIsIndexing(true);
+        setIndexingProgress('Starting indexing...');
+      });
+
+      // Listen for indexing completed
+      const completedUnlisten = await listen('indexing-completed', (event) => {
+        setIsIndexing(false);
+        setIndexingProgress('');
+        // Refresh indexed folders and current folder files
+        queryClient.invalidateQueries({ queryKey: ["indexedFolders"] });
+        if (selectedFolder) {
+          queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
+        }
+      });
+
+      // Listen for individual file indexed (for real-time updates)
+      const fileIndexedUnlisten = await listen('file-indexed', (event) => {
+        const file = event.payload as FileMeta;
+        // Update the current query cache if we're viewing the same folder
+        if (selectedFolder && file.path.startsWith(selectedFolder)) {
+          queryClient.setQueryData(["files", selectedFolder], (oldData: FileMeta[] | undefined) => {
+            if (!oldData) return [file];
+            // Add file if not already present
+            const exists = oldData.some(f => f.id === file.id);
+            return exists ? oldData : [...oldData, file];
+          });
+        }
+      });
+
+      return () => {
+        progressUnlisten();
+        startedUnlisten();
+        completedUnlisten();
+        fileIndexedUnlisten();
+      };
+    };
+
+    setupEventListeners();
+  }, [queryClient, selectedFolder]);
 
   // Load app settings
   const { data: settings } = useQuery({
@@ -30,47 +85,135 @@ function App() {
     },
   });
 
-  // Load files when folder is selected
-  const { 
-    data: files = [], 
-    isLoading: filesLoading, 
-    error: filesError 
+  // Load files from included folders when selection changes
+  const {
+    data: allFiles = [],
+    isLoading: filesLoading,
+    error: filesError
   } = useQuery({
-    queryKey: ["files", selectedFolder],
+    queryKey: ["files", includedFolders],
     queryFn: async (): Promise<FileMeta[]> => {
-      if (!selectedFolder) return [];
-      console.log("Fetching files for folder:", selectedFolder);
-      const result = await invoke("get_files", { offset: 0, limit: 1000 }) as FileMeta[];
-      console.log("Files fetched:", result);
-      return result;
+      if (includedFolders.length === 0) {
+        console.log("No folders included, returning empty array");
+        return [];
+      }
+      
+      console.log("Loading files for ONLY these included folders:", includedFolders);
+      
+      // Get files from ONLY the included folders - NO RECURSION
+      const folderFilesPromises = includedFolders.map(async (folder) => {
+        try {
+          console.log(`Fetching files from EXACT folder: ${folder}`);
+          const files = await invoke("get_files", { 
+            folderPath: folder,
+            offset: 0, 
+            limit: 1000 
+          }) as FileMeta[];
+          
+          // Double-check: only include files that belong EXACTLY to this folder
+          const exactFiles = files.filter(file => {
+            const fileFolder = file.path.substring(0, file.path.lastIndexOf('\\') || file.path.lastIndexOf('/'));
+            const belongsToExactFolder = fileFolder.toLowerCase() === folder.toLowerCase();
+            if (!belongsToExactFolder) {
+              console.warn(`File ${file.path} filtered out - belongs to ${fileFolder}, not ${folder}`);
+            }
+            return belongsToExactFolder;
+          });
+          
+          console.log(`Found ${files.length} total files, ${exactFiles.length} exact files in ${folder}`);
+          return exactFiles;
+        } catch (error) {
+          console.warn(`Failed to load files from ${folder}:`, error);
+          return [] as FileMeta[];
+        }
+      });
+      
+      const allFolderFiles = await Promise.all(folderFilesPromises);
+      const flattenedFiles = allFolderFiles.flat();
+      
+      // Remove duplicates based on file path
+      const uniqueFiles = flattenedFiles.filter((file, index, self) => 
+        index === self.findIndex(f => f.path === file.path)
+      );
+      
+      console.log(`Total unique files from ${includedFolders.length} folders: ${uniqueFiles.length}`);
+      return uniqueFiles;
     },
-    enabled: !!selectedFolder,
+    enabled: includedFolders.length > 0,
   });
+
+  // Filter files based on search query
+  const files = allFiles.filter(file => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return (
+      file.name.toLowerCase().includes(query) ||
+      file.path.toLowerCase().includes(query) ||
+      file.file_type.toLowerCase().includes(query)
+    );
+  });
+
+  const handleFolderInclusionChange = (folderPath: string, included: boolean) => {
+    setIncludedFolders(prev => {
+      if (included && !prev.includes(folderPath)) {
+        return [...prev, folderPath];
+      } else if (!included && prev.includes(folderPath)) {
+        return prev.filter(f => f !== folderPath);
+      }
+      return prev;
+    });
+  };
 
   const handleFolderSelect = async (folderPath: string) => {
     try {
-      console.log("Starting to index folder:", folderPath);
+      console.log("Selecting folder:", folderPath);
+      
+      // Clear search query
+      setSearchQuery("");
+      
+      // Set new folder immediately to show it in UI
       setSelectedFolder(folderPath);
       
-      // Start indexing the folder
-      const result = await invoke("index_folder", { root: folderPath, recursive: true });
-      console.log("Indexing result:", result);
+      // Check if folder is already indexed
+      const isAlreadyIndexed = await invoke("is_folder_indexed", { folderPath: folderPath });
       
-      // Small delay to ensure indexing is complete
-      await new Promise(resolve => setTimeout(resolve, 100));
+      if (isAlreadyIndexed) {
+        console.log("Folder already indexed");
+        setIndexingProgress("Folder already indexed");
+        
+        // Don't auto-include - let user decide with checkbox
+        setTimeout(() => setIndexingProgress(""), 1000);
+        return;
+      }
       
-      // Invalidate and refetch the files query
-      await queryClient.invalidateQueries({ queryKey: ["files", folderPath] });
+      // Start streaming indexing process
+      console.log("Starting streaming indexing...");
+      const result = await invoke("index_folder_streaming", { 
+        root: folderPath, 
+        recursive: true 
+      });
+      console.log("Streaming indexing completed:", result);
+      
+      // Auto-include newly indexed folder only
+      if (!includedFolders.includes(folderPath)) {
+        setIncludedFolders(prev => [...prev, folderPath]);
+      }
       
     } catch (error) {
-      console.error("Failed to index folder:", error);
-      alert(`Failed to index folder: ${error}`);
+      console.error("Failed to process folder:", error);
+      setIsIndexing(false);
+      setIndexingProgress("");
+      alert(`Failed to process folder: ${error}`);
     }
+  };
+
+  const handleSearch = (query: string) => {
+    setSearchQuery(query);
   };
 
   if (!selectedFolder) {
     return (
-      <WelcomeScreen 
+      <WelcomeScreen
         onFolderSelect={handleFolderSelect}
         defaultFolder={settings?.defaultFolder}
       />
@@ -79,19 +222,25 @@ function App() {
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      <Sidebar 
+      <Sidebar
         currentView={currentView}
         onViewChange={setCurrentView}
         folderPath={selectedFolder}
+        onFolderSelect={handleFolderSelect}
+        isIndexing={isIndexing}
+        indexingProgress={indexingProgress}
+        includedFolders={includedFolders}
+        onFolderInclusionChange={handleFolderInclusionChange}
       />
-      
+
       <div className="flex-1 flex flex-col overflow-hidden">
-        <TopBar 
+        <TopBar
           folderPath={selectedFolder}
           onFolderChange={handleFolderSelect}
           fileCount={files.length}
+          onSearch={handleSearch}
         />
-        
+
         <main className="flex-1 overflow-hidden">
           {filesError ? (
             <div className="flex items-center justify-center h-full">
@@ -103,10 +252,11 @@ function App() {
               </div>
             </div>
           ) : (
-            <FileGrid 
+            <FileGrid
               files={files}
-              isLoading={filesLoading}
+              isLoading={filesLoading || isIndexing}
               thumbnailSize={settings?.thumbnailSize || 200}
+              loadingMessage={indexingProgress || (filesLoading ? "Loading images..." : "")}
             />
           )}
         </main>

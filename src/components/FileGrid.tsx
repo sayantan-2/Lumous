@@ -1,13 +1,15 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { FixedSizeGrid as Grid } from "react-window";
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { FileMeta } from "../types";
 import { cn } from "../lib/utils";
+import { ImageViewer } from "./ImageViewer";
 
 interface FileGridProps {
   files: FileMeta[];
   isLoading: boolean;
   thumbnailSize: number;
+  loadingMessage?: string;
 }
 
 interface ThumbnailItemProps {
@@ -18,11 +20,12 @@ interface ThumbnailItemProps {
     files: FileMeta[];
     columnsPerRow: number;
     thumbnailSize: number;
+    onImageClick: (index: number) => void;
   };
 }
 
 function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProps) {
-  const { files, columnsPerRow, thumbnailSize } = data;
+  const { files, columnsPerRow, thumbnailSize, onImageClick } = data;
   const index = rowIndex * columnsPerRow + columnIndex;
   const file = files[index];
 
@@ -34,13 +37,14 @@ function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProp
 
   return (
     <div style={style} className="p-2">
-      <div 
+      <div
         className={cn(
           "relative group cursor-pointer rounded-lg overflow-hidden",
           "hover:shadow-lg transition-all duration-200",
           "bg-muted"
         )}
         style={{ aspectRatio: "1" }}
+        onClick={() => onImageClick(index)}
       >
         {/* Display the actual image */}
         <div className="w-full h-full relative">
@@ -50,7 +54,6 @@ function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProp
             className="w-full h-full object-cover"
             onError={(e) => {
               console.error('Failed to load image:', file.path);
-              // If image fails to load, hide it and show the error
               const target = e.target as HTMLImageElement;
               target.style.display = 'none';
             }}
@@ -68,7 +71,9 @@ function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProp
   );
 }
 
-export function FileGrid({ files, isLoading, thumbnailSize }: FileGridProps) {
+export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: FileGridProps) {
+  const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+  
   const { columnsPerRow, rowCount } = useMemo(() => {
     const containerWidth = window.innerWidth - 256 - 32; // sidebar width + padding
     const itemWidth = thumbnailSize + 16; // thumbnail + padding
@@ -81,16 +86,34 @@ export function FileGrid({ files, isLoading, thumbnailSize }: FileGridProps) {
     };
   }, [files.length, thumbnailSize]);
 
-  if (isLoading) {
+  const handleImageClick = (index: number) => {
+    setSelectedImageIndex(index);
+  };
+
+  const handleCloseViewer = () => {
+    setSelectedImageIndex(null);
+  };  if (isLoading) {
+    const isIndexing = loadingMessage && loadingMessage.includes("indexing");
+    
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <div className="animate-pulse mb-4">
             <div className="w-16 h-16 bg-muted rounded-lg mx-auto"></div>
           </div>
-          <h2 className="text-xl font-semibold mb-2">Loading images...</h2>
+          <h2 className="text-xl font-semibold mb-2">
+            {loadingMessage || "Loading images..."}
+          </h2>
+          {isIndexing && (
+            <div className="w-full bg-muted rounded-full h-2 mb-4">
+              <div className="bg-primary h-2 rounded-full animate-pulse w-3/5"></div>
+            </div>
+          )}
           <p className="text-muted-foreground">
-            Please wait while we load your photos
+            {isIndexing 
+              ? "Discovering and indexing photos in this folder..." 
+              : "Please wait while we process your photos"
+            }
           </p>
         </div>
       </div>
@@ -123,10 +146,21 @@ export function FileGrid({ files, isLoading, thumbnailSize }: FileGridProps) {
           files,
           columnsPerRow,
           thumbnailSize,
+          onImageClick: handleImageClick,
         }}
       >
         {ThumbnailItem}
       </Grid>
+      
+      {selectedImageIndex !== null && (
+        <ImageViewer
+          files={files}
+          currentIndex={selectedImageIndex}
+          isOpen={selectedImageIndex !== null}
+          onClose={handleCloseViewer}
+          onIndexChange={setSelectedImageIndex}
+        />
+      )}
     </div>
   );
 }
