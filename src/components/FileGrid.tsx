@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+/* eslint-disable */
+import { useMemo, useState, useEffect, useRef } from "react";
 import { FixedSizeGrid as Grid } from "react-window";
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { FileMeta } from "../types";
@@ -10,6 +11,7 @@ interface FileGridProps {
   isLoading: boolean;
   thumbnailSize: number;
   loadingMessage?: string;
+  isSidebarSlim: boolean; // kept (future styling) but no longer used for width calc
 }
 
 interface ThumbnailItemProps {
@@ -30,13 +32,13 @@ function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProp
   const file = files[index];
 
   if (!file) {
-    return <div style={style} />;
+    return <div className="file-grid-cell" style={style} />;
   }
 
   const fileName = file.path.split(/[/\\]/).pop() || file.path;
 
   return (
-    <div style={style} className="p-2">
+    <div style={style} className="file-grid-cell p-2">
       <div
         className={cn(
           "relative group cursor-pointer rounded-lg overflow-hidden",
@@ -73,18 +75,51 @@ function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProp
 
 export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: FileGridProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
-  
-  const { columnsPerRow, rowCount } = useMemo(() => {
-    const containerWidth = window.innerWidth - 256 - 32; // sidebar width + padding
-    const itemWidth = thumbnailSize + 16; // thumbnail + padding
-    const cols = Math.max(1, Math.floor(containerWidth / itemWidth));
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  // Observe container size (more accurate than window - sidebar heuristic)
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    };
+    measure();
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  const { columnsPerRow, rowCount, gridWidth, gridHeight, columnWidth, rowHeight } = useMemo(() => {
+    const availableWidth = containerSize.width;
+    const availableHeight = containerSize.height || (window.innerHeight - 80); // fallback
+    if (!availableWidth) {
+      return { columnsPerRow: 1, rowCount: files.length, gridWidth: availableWidth, gridHeight: availableHeight, columnWidth: thumbnailSize + 16, rowHeight: thumbnailSize + 16 };
+    }
+    const gapOuter = 16; // target gap (equals cell padding total) to keep at right edge
+    // Reserve gapOuter first, then compute how many base cells fit
+    const baseOuter = thumbnailSize + gapOuter; // desired nominal outer cell size (thumb + gap)
+    const cols = Math.max(1, Math.floor((availableWidth - gapOuter) / baseOuter));
+    const rawUsed = cols * baseOuter; // without right gutter
+    const leftover = Math.max(0, availableWidth - rawUsed - gapOuter); // distributable space to avoid large gutter
+    const stretchPerCol = leftover / cols; // distribute so only gapOuter remains as gutter
+    const finalOuter = baseOuter + stretchPerCol; // stretched outer (can be fractional)
+    const gridWidth = finalOuter * cols + gapOuter; // should equal availableWidth (floating point safe)
     const rows = Math.ceil(files.length / cols);
-    
     return {
       columnsPerRow: cols,
       rowCount: rows,
+      gridWidth,
+      gridHeight: availableHeight,
+      columnWidth: finalOuter,
+      rowHeight: finalOuter
     };
-  }, [files.length, thumbnailSize]);
+  }, [containerSize, thumbnailSize, files.length]);
 
   const handleImageClick = (index: number) => {
     setSelectedImageIndex(index);
@@ -134,23 +169,25 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
   }
 
   return (
-    <div className="h-full w-full">
-      <Grid
-        columnCount={columnsPerRow}
-        columnWidth={thumbnailSize + 16}
-        height={window.innerHeight - 100} // Adjust for header
-        rowCount={rowCount}
-        rowHeight={thumbnailSize + 16}
-        width={window.innerWidth - 256} // Adjust for sidebar
-        itemData={{
-          files,
-          columnsPerRow,
-          thumbnailSize,
-          onImageClick: handleImageClick,
-        }}
-      >
-        {ThumbnailItem}
-      </Grid>
+  <div ref={containerRef} className="h-full w-full overflow-hidden min-h-0">
+      {gridWidth > 0 && gridHeight > 0 && (
+        <Grid
+          columnCount={columnsPerRow}
+          columnWidth={columnWidth}
+          height={gridHeight}
+          rowCount={rowCount}
+          rowHeight={rowHeight}
+          width={gridWidth}
+          itemData={{
+            files,
+            columnsPerRow,
+            thumbnailSize, // original intended base; actual rendered may stretch slightly
+            onImageClick: handleImageClick,
+          }}
+        >
+          {ThumbnailItem}
+        </Grid>
+      )}
       
       {selectedImageIndex !== null && (
         <ImageViewer

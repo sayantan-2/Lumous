@@ -267,7 +267,7 @@ function App() {
         onToggleSlim={() => setIsSidebarSlim(!isSidebarSlim)}
       />
 
-      <div className="flex-1 flex flex-col overflow-hidden">
+  <div className="flex-1 flex flex-col overflow-hidden min-h-0">
         <TopBar
           folderPath={selectedFolder}
           onFolderChange={handleFolderSelect}
@@ -275,7 +275,7 @@ function App() {
           onSearch={handleSearch}
         />
 
-        <main className="flex-1 overflow-hidden">
+  <main className="flex-1 overflow-hidden min-h-0">
           {filesError ? (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
@@ -291,6 +291,7 @@ function App() {
               isLoading={filesLoading || isIndexing}
               thumbnailSize={settings?.thumbnailSize || 200}
               loadingMessage={indexingProgress || (filesLoading ? "Loading images..." : "")}
+              isSidebarSlim={isSidebarSlim}
             />
           )}
         </main>

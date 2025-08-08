@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Grid, Heart, Folder, Tags, Star, Plus, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { Grid, Heart, Tags, Star, Plus, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "./ui/Button";
-import { FolderTree } from "./FolderTree";
+import { FolderExplorer } from "./FolderExplorer";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -31,9 +31,8 @@ export function Sidebar({
   isSlim,
   onToggleSlim
 }: SidebarProps) {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isTogglingSlim, setIsTogglingSlim] = useState(false);
-  const shouldShowContent = !isSlim || (isHovered && !isTogglingSlim);
+  // Simplified UX: explicit toggle only (no hover auto-expand)
+  const shouldShowContent = !isSlim;
   
   const getFolderName = (path: string) => {
     return path.split(/[/\\]/).pop() || path;
@@ -70,37 +69,24 @@ export function Sidebar({
     }
   };
 
-  const handleToggleSlim = () => {
-    setIsTogglingSlim(true);
-    onToggleSlim();
-    // Re-enable hover after a short delay
-    setTimeout(() => setIsTogglingSlim(false), 300);
-  };
+  const handleToggleSlim = () => onToggleSlim();
 
   return (
-    <aside 
-      className={`bg-card border-r flex flex-col transition-all duration-300 ${
-        isSlim && !isHovered ? 'w-16' : 'w-64'
+    <aside
+      className={`bg-card border-r flex flex-col min-h-0 transition-[width] duration-300 ease-out ${
+        isSlim ? 'w-14' : 'w-72'
       }`}
     >
       {/* Sidebar Header */}
-      <div className="p-4 border-b flex items-center justify-between">
-        <div 
-          className="flex-1"
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
-        >
-          {shouldShowContent && (
-            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Navigation
-            </h2>
-          )}
-        </div>
+      <div className="p-3 border-b flex items-center gap-2">
+        {!isSlim && (
+          <h2 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">Library</h2>
+        )}
         <Button
           variant="ghost"
           size="icon"
           onClick={handleToggleSlim}
-          className="h-6 w-6 flex-shrink-0"
+          className="h-7 w-7 ml-auto"
           title={isSlim ? "Expand sidebar" : "Collapse sidebar"}
         >
           {isSlim ? (
@@ -111,128 +97,68 @@ export function Sidebar({
         </Button>
       </div>
 
-      {/* Main content area with hover */}
-      <div 
-        className="flex-1 flex flex-col"
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-      >
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Current Folder Section */}
-        {shouldShowContent && (
-          <div className="p-4 border-b">
-            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-              Current Folder
-            </h3>
-            <p className="mt-1 text-sm truncate" title={folderPath}>
-              {getFolderName(folderPath)}
-            </p>
+        {!isSlim && (
+          <div className="px-3 py-2 border-b space-y-1">
+            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Current</div>
+            <div className="text-sm truncate" title={folderPath}>{getFolderName(folderPath)}</div>
           </div>
         )}
 
         {/* Navigation Content */}
-        <nav className="flex-1 p-4 space-y-4 overflow-y-auto">
-        {/* Indexed Folders Section */}
-        <div className="space-y-1">
-          {shouldShowContent && (
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
-                Indexed Folders
-              </h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0"
-                onClick={handleBrowseNewFolder}
-                title="Add new folder"
-              >
-                <Plus className="w-3 h-3" />
-              </Button>
-            </div>
-          )}
-          
-          {shouldShowContent ? (
-            <FolderTree 
+        <nav className="flex-1 px-3 py-3 space-y-5 overflow-y-auto">
+          <div className="space-y-2">
+            {!isSlim && (
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Folders</span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="Add folder" onClick={handleBrowseNewFolder}>
+                  <Plus className="w-3 h-3" />
+                </Button>
+              </div>
+            )}
+            <FolderExplorer
               folders={indexedFolders}
               selectedFolder={folderPath}
               onFolderSelect={onFolderSelect}
               includedFolders={includedFolders}
               onFolderInclusionChange={onFolderInclusionChange}
+              condensed={isSlim}
             />
-          ) : (
-            <div className="flex flex-col items-center space-y-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleBrowseNewFolder}
-                title="Add new folder"
-                className="w-8 h-8"
-              >
-                <Plus className="w-4 h-4" />
+          </div>
+          <div className="space-y-2">
+            {!isSlim && (
+              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filters</div>
+            )}
+            <div className={`flex flex-col gap-1 ${isSlim ? 'items-center' : ''}`}>
+              <Button variant="ghost" className={cnFilterBtn(isSlim)} title="Favorites">
+                <Star className="w-4 h-4" />
+                {!isSlim && <span>Favorites</span>}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                title="Folders"
-                className="w-8 h-8"
-              >
-                <Folder className="w-4 h-4" />
+              <Button variant="ghost" className={cnFilterBtn(isSlim)} title="Recently Added">
+                <Heart className="w-4 h-4" />
+                {!isSlim && <span>Recently Added</span>}
+              </Button>
+              <Button variant="ghost" className={cnFilterBtn(isSlim)} title="Tagged">
+                <Tags className="w-4 h-4" />
+                {!isSlim && <span>Tagged</span>}
               </Button>
             </div>
-          )}
-        </div>
-
-        {/* Quick Filters Section */}
-        <div className="space-y-1">
-          {shouldShowContent && (
-            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-2">
-              Quick Filters
-            </h3>
-          )}
-          
-          <Button
-            variant="ghost"
-            className={shouldShowContent ? 'w-full justify-start' : 'w-8 h-8 p-0'}
-            title="Favorites"
-          >
-            <Star className={`w-4 h-4 ${shouldShowContent ? 'mr-2' : ''}`} />
-            {shouldShowContent && "Favorites"}
-          </Button>
-          
-          <Button
-            variant="ghost"
-            className={shouldShowContent ? 'w-full justify-start' : 'w-8 h-8 p-0'}
-            title="Recently Added"
-          >
-            <Heart className={`w-4 h-4 ${shouldShowContent ? 'mr-2' : ''}`} />
-            {shouldShowContent && "Recently Added"}
-          </Button>
-          
-          <Button
-            variant="ghost"
-            className={shouldShowContent ? 'w-full justify-start' : 'w-8 h-8 p-0'}
-            title="Tagged"
-          >
-            <Tags className={`w-4 h-4 ${shouldShowContent ? 'mr-2' : ''}`} />
-            {shouldShowContent && "Tagged"}
-          </Button>
-        </div>
+          </div>
         </nav>
 
         {/* Footer Section */}
-        <div className="p-4 border-t space-y-3">
+  <div className="px-3 py-3 border-t space-y-3">
           {/* Settings Button */}
-          <Button
-            variant="ghost"
-            className={shouldShowContent ? 'w-full justify-start' : 'w-8 h-8 p-0'}
-            title="Settings"
-          >
-            <Settings className={`w-4 h-4 ${shouldShowContent ? 'mr-2' : ''}`} />
-            {shouldShowContent && "Settings"}
+          <Button variant="ghost" className={`w-full justify-start ${isSlim ? 'p-0 h-8 flex items-center justify-center' : ''}`} title="Settings">
+            <Settings className="w-4 h-4" />
+            {!isSlim && <span className="ml-2">Settings</span>}
           </Button>
           
           {/* Status Info */}
-          {shouldShowContent && (
-            <div className="text-xs text-muted-foreground">
+          {!isSlim && (
+            <div className="text-[10px] text-muted-foreground leading-relaxed">
               {isIndexing ? (
                 <>
                   <div className="flex items-center space-x-2 mb-2">
@@ -257,4 +183,9 @@ export function Sidebar({
       </div>
     </aside>
   );
+}
+
+// Local helper for different button layout in slim vs expanded
+function cnFilterBtn(isSlim: boolean) {
+  return isSlim ? "w-8 h-8 p-0 flex items-center justify-center" : "justify-start w-full";
 }
