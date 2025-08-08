@@ -19,12 +19,12 @@ interface SidebarProps {
   onToggleSlim: () => void;
 }
 
-export function Sidebar({ 
-  currentView, 
-  onViewChange, 
-  folderPath, 
-  onFolderSelect, 
-  isIndexing = false, 
+export function Sidebar({
+  currentView,
+  onViewChange,
+  folderPath,
+  onFolderSelect,
+  isIndexing = false,
   indexingProgress = "",
   includedFolders,
   onFolderInclusionChange,
@@ -33,7 +33,7 @@ export function Sidebar({
 }: SidebarProps) {
   // Simplified UX: explicit toggle only (no hover auto-expand)
   const shouldShowContent = !isSlim;
-  
+
   const getFolderName = (path: string) => {
     return path.split(/[/\\]/).pop() || path;
   };
@@ -73,12 +73,11 @@ export function Sidebar({
 
   return (
     <aside
-      className={`bg-card border-r flex flex-col min-h-0 transition-[width] duration-300 ease-out ${
-        isSlim ? 'w-14' : 'w-72'
-      }`}
+      className={`bg-card border-r flex flex-col min-h-0 transition-[width] duration-300 ease-out ${isSlim ? 'w-18' : 'w-70'
+        }`}
     >
       {/* Sidebar Header */}
-      <div className="p-3 border-b flex items-center gap-2">
+      <div className="p-3 border-b flex items-center gap-2 h-14">
         {!isSlim && (
           <h2 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">Library</h2>
         )}
@@ -149,13 +148,13 @@ export function Sidebar({
         </nav>
 
         {/* Footer Section */}
-  <div className="px-3 py-3 border-t space-y-3">
+        <div className="px-3 py-3 border-t space-y-3">
           {/* Settings Button */}
           <Button variant="ghost" className={`w-full justify-start ${isSlim ? 'p-0 h-8 flex items-center justify-center' : ''}`} title="Settings">
             <Settings className="w-4 h-4" />
             {!isSlim && <span className="ml-2">Settings</span>}
           </Button>
-          
+
           {/* Status Info */}
           {!isSlim && (
             <div className="text-[10px] text-muted-foreground leading-relaxed">

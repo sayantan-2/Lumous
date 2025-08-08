@@ -96,12 +96,14 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
   }, []);
 
   const { columnsPerRow, rowCount, gridWidth, gridHeight, columnWidth, rowHeight } = useMemo(() => {
-    const availableWidth = containerSize.width;
+    // Fallback if resize observer hasn't fired yet (0 width) use window innerWidth minus an estimated sidebar
+    const estimatedSidebar = 280; // matches expanded sidebar width
+    const availableWidth = containerSize.width || Math.max(0, window.innerWidth - estimatedSidebar);
     const availableHeight = containerSize.height || (window.innerHeight - 80); // fallback
     if (!availableWidth) {
       return { columnsPerRow: 1, rowCount: files.length, gridWidth: availableWidth, gridHeight: availableHeight, columnWidth: thumbnailSize + 16, rowHeight: thumbnailSize + 16 };
     }
-    const gapOuter = 16; // target gap (equals cell padding total) to keep at right edge
+    const gapOuter = 20; // target gap (equals cell padding total) to keep at right edge
     // Reserve gapOuter first, then compute how many base cells fit
     const baseOuter = thumbnailSize + gapOuter; // desired nominal outer cell size (thumb + gap)
     const cols = Math.max(1, Math.floor((availableWidth - gapOuter) / baseOuter));
@@ -127,9 +129,9 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
 
   const handleCloseViewer = () => {
     setSelectedImageIndex(null);
-  };  if (isLoading) {
+  }; if (isLoading) {
     const isIndexing = loadingMessage && loadingMessage.includes("indexing");
-    
+
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center max-w-md">
@@ -145,8 +147,8 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
             </div>
           )}
           <p className="text-muted-foreground">
-            {isIndexing 
-              ? "Discovering and indexing photos in this folder..." 
+            {isIndexing
+              ? "Discovering and indexing photos in this folder..."
               : "Please wait while we process your photos"
             }
           </p>
@@ -169,7 +171,7 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
   }
 
   return (
-  <div ref={containerRef} className="h-full w-full overflow-hidden min-h-0">
+    <div ref={containerRef} className="h-full w-full overflow-hidden min-h-0">
       {gridWidth > 0 && gridHeight > 0 && (
         <Grid
           columnCount={columnsPerRow}
@@ -188,7 +190,7 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
           {ThumbnailItem}
         </Grid>
       )}
-      
+
       {selectedImageIndex !== null && (
         <ImageViewer
           files={files}

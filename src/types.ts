@@ -77,7 +77,7 @@ export interface EditOperation {
 }
 
 export interface AppSettings {
-  theme: "light" | "dark" | "system";
+  theme: "light" | "dark"; // removed "system" option
   thumbnailSize: number;
   defaultFolder: string | null;
   cacheLocation: string | null;

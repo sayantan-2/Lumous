@@ -97,7 +97,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            theme: "system".to_string(),
+            theme: "dark".to_string(),
             thumbnail_size: 200,
             default_folder: None,
             cache_location: None,

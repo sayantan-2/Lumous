@@ -103,7 +103,7 @@ function App() {
       } catch (error) {
         console.warn("No settings found, using defaults:", error);
         return {
-          theme: "system",
+          theme: "dark",
           thumbnailSize: 200,
           defaultFolder: null,
           cacheLocation: null,
@@ -211,10 +211,17 @@ function App() {
       if (isAlreadyIndexed) {
         console.log("Folder already indexed");
         setIndexingProgress("Folder already indexed");
-        
-        // Don't auto-include - let user decide with checkbox
-        setTimeout(() => setIndexingProgress(""), 1000);
-        return;
+        // Ensure it's in the included folders so images load in the grid
+        if (!includedFolders.includes(folderPath)) {
+          setIncludedFolders(prev => {
+            const next = [...prev, folderPath];
+            invoke("set_included_folders", { folders: next }).catch(() => {});
+            return next;
+          });
+        }
+        // Clear progress shortly after informing user
+        setTimeout(() => setIndexingProgress(""), 800);
+        return; // No need to re-index
       }
       
       // Start streaming indexing process
