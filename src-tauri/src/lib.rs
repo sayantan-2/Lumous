@@ -39,8 +39,8 @@ pub fn run() {
       open_in_explorer,
   watch_folder,
   get_library_state,
-  update_last_selected_folder,
-  set_included_folders
+  update_last_selected_folder
+  ,reset_library
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

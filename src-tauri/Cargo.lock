@@ -2656,6 +2656,7 @@ dependencies = [
  "notify",
  "once_cell",
  "rayon",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

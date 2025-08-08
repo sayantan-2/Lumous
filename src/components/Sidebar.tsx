@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Grid, Heart, Tags, Star, Plus, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { Grid, Heart, Tags, Star, Plus, Settings, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { FolderExplorer } from "./FolderExplorer";
 import { useQuery } from "@tanstack/react-query";
@@ -13,8 +13,6 @@ interface SidebarProps {
   onFolderSelect: (folderPath: string) => void;
   isIndexing?: boolean;
   indexingProgress?: string;
-  includedFolders: string[];
-  onFolderInclusionChange: (folderPath: string, included: boolean) => void;
   isSlim: boolean;
   onToggleSlim: () => void;
 }
@@ -26,8 +24,6 @@ export function Sidebar({
   onFolderSelect,
   isIndexing = false,
   indexingProgress = "",
-  includedFolders,
-  onFolderInclusionChange,
   isSlim,
   onToggleSlim
 }: SidebarProps) {
@@ -70,6 +66,22 @@ export function Sidebar({
   };
 
   const handleToggleSlim = () => onToggleSlim();
+  const [showSettings, setShowSettings] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const handleReset = async () => {
+    if (!confirm("This will clear all indexed data (thumbnails & folder index). Your image files on disk remain untouched. Continue?")) return;
+    try {
+      setResetting(true);
+      await invoke("reset_library");
+      window.location.reload();
+    } catch (e) {
+      console.error("Reset failed", e);
+      alert("Reset failed: " + e);
+    } finally {
+      setResetting(false);
+    }
+  };
 
   return (
     <aside
@@ -121,8 +133,6 @@ export function Sidebar({
               folders={indexedFolders}
               selectedFolder={folderPath}
               onFolderSelect={onFolderSelect}
-              includedFolders={includedFolders}
-              onFolderInclusionChange={onFolderInclusionChange}
               condensed={isSlim}
             />
           </div>
@@ -150,10 +160,20 @@ export function Sidebar({
         {/* Footer Section */}
         <div className="px-3 py-3 border-t space-y-3">
           {/* Settings Button */}
-          <Button variant="ghost" className={`w-full justify-start ${isSlim ? 'p-0 h-8 flex items-center justify-center' : ''}`} title="Settings">
+          <Button variant="ghost" className={`w-full justify-start ${isSlim ? 'p-0 h-8 flex items-center justify-center' : ''}`} title="Settings" onClick={()=>setShowSettings(s=>!s)}>
             <Settings className="w-4 h-4" />
             {!isSlim && <span className="ml-2">Settings</span>}
           </Button>
+          {showSettings && !isSlim && (
+            <div className="p-2 rounded border bg-muted/40 space-y-2">
+              <div className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Maintenance</div>
+              <Button variant="ghost" disabled={resetting} onClick={handleReset} className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30" title="Clear in-app database (does not delete actual image files)">
+                <Trash2 className="w-4 h-4"/>
+                <span className="ml-2">{resetting?"Resetting...":"Reset Library"}</span>
+              </Button>
+              <p className="text-[10px] leading-relaxed text-muted-foreground">Removes indexed entries & thumbnails. Use if you see duplicate images.</p>
+            </div>
+          )}
 
           {/* Status Info */}
           {!isSlim && (

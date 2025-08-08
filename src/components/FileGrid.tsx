@@ -101,16 +101,17 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
         >
           {files.map((file, index) => {
             const fileName = file.path.split(/[/\\\\]/).pop() || file.path;
+            const displayPath = file.thumbnail_path || file.path;
             return (
               <div key={file.id || file.path} className="group cursor-pointer select-none" onClick={() => handleImageClick(index)}>
                 <div className="relative rounded-lg overflow-hidden bg-muted aspect-square hover:shadow-lg transition-shadow">
                   <img
-                    src={convertFileSrc(file.path)}
+                    src={convertFileSrc(displayPath)}
                     alt={fileName}
                     className="w-full h-full object-cover"
                     loading="lazy"
                     onError={(e) => {
-                      console.error('Failed to load image:', file.path);
+                      console.error('Failed to load image:', displayPath);
                       (e.target as HTMLImageElement).style.display = 'none';
                     }}
                   />

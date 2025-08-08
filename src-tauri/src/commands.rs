@@ -43,7 +43,8 @@ struct SimpleDB {
     albums: HashMap<String, Album>,
     // Library metadata
     last_selected_folder: Option<String>,
-    included_folders: Vec<String>,
+    #[serde(default)]
+    path_index: HashMap<String, String>, // normalized path -> file_id
 }
 
 impl SimpleDB {
@@ -53,18 +54,23 @@ impl SimpleDB {
             folders: HashMap::new(),
             albums: HashMap::new(),
             last_selected_folder: None,
-            included_folders: Vec::new(),
+            path_index: HashMap::new(),
         }
     }
 
     fn add_file(&mut self, file: FileMeta, folder_path: &str) {
+        let norm = normalize_path(&file.path);
+        if let Some(existing) = self.path_index.get(&norm) {
+            // Replace existing metadata (e.g., updated thumbnail)
+            self.files.insert(existing.clone(), file);
+            return;
+        }
         let file_id = file.id.clone();
         self.files.insert(file_id.clone(), file);
-        
-        // Add to folder index
         self.folders.entry(folder_path.to_string())
             .or_insert_with(Vec::new)
-            .push(file_id);
+            .push(file_id.clone());
+        self.path_index.insert(norm, file_id);
     }
 
     fn get_files_for_folder(&self, folder_path: &str, offset: usize, limit: usize) -> Vec<FileMeta> {
@@ -132,8 +138,47 @@ impl SimpleDB {
     }
 
     fn get_indexed_folders(&self) -> Vec<String> {
-        self.folders.keys().cloned().collect()
+        let mut v: Vec<String> = self.folders.keys().cloned().collect();
+        // Natural-ish sort: split digits and alpha segments
+        v.sort_by(|a,b| natural_like(a, b));
+        v
     }
+}
+
+// Simple natural compare (avoid extra dependency): compares runs of digits numerically
+fn natural_like(a: &str, b: &str) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    static RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(r"(\\d+)|(\\D+)").unwrap());
+    let ca: Vec<&str> = RE.find_iter(a).map(|m| m.as_str()).collect();
+    let cb: Vec<&str> = RE.find_iter(b).map(|m| m.as_str()).collect();
+    for i in 0..ca.len().max(cb.len()) {
+        let sa = ca.get(i);
+        let sb = cb.get(i);
+        match (sa, sb) {
+            (Some(&ra), Some(&rb)) => {
+                let da = ra.chars().all(|c| c.is_ascii_digit());
+                let db = rb.chars().all(|c| c.is_ascii_digit());
+                if da && db {
+                    let ia: i64 = ra.parse().unwrap_or(0);
+                    let ib: i64 = rb.parse().unwrap_or(0);
+                    if ia != ib { return ia.cmp(&ib); }
+                } else if da != db { // digits come before letters
+                    return if da { Ordering::Less } else { Ordering::Greater };
+                } else if ra != rb { return ra.cmp(&rb); }
+            }
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (None, None) => break,
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+fn normalize_path(p: &str) -> String {
+    let canon = std::fs::canonicalize(p).ok()
+        .and_then(|pb| pb.to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| p.to_string());
+    if cfg!(windows) { canon.to_lowercase() } else { canon }
 }
 
 static DB: Lazy<Mutex<SimpleDB>> = Lazy::new(|| {
@@ -164,54 +209,54 @@ pub async fn update_settings(settings: AppSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn index_folder(root: String, recursive: bool) -> Result<IndexResult, String> {
-    let path = Path::new(&root);
+pub async fn index_folder(root: String, _recursive: bool) -> Result<IndexResult, String> {
+    let norm_root = normalize_path(&root);
+    let path = Path::new(&norm_root);
     if !path.exists() {
         return Err("Folder does not exist".to_string());
     }
 
-    println!("Starting to scan directory: {}", root);
+    println!("Starting to scan directory: {}", norm_root);
     
     // Check if folder is already indexed
     {
         let db = DB.lock().map_err(|e| e.to_string())?;
-        if db.is_folder_indexed(&root) {
-            let file_count = db.get_folder_file_count(&root);
-            println!("Folder already indexed with {} files", file_count);
-            return Ok(IndexResult {
-                total_files: file_count,
-                indexed_files: 0,
-                skipped_files: file_count,
-                errors: vec!["Folder already indexed".to_string()],
-            });
+        if db.is_folder_indexed(&norm_root) {
+            println!("Reindex requested; clearing existing folder: {}", norm_root);
+            drop(db);
+            let mut db2 = DB.lock().map_err(|e| e.to_string())?;
+            db2.clear_folder(&norm_root);
         }
     }
 
-    let files = scan_directory(path, recursive)
+    let files = scan_directory(path, false)
         .await
         .map_err(|e| e.to_string())?;
 
     println!("Scanned {} files", files.len());
 
-    // Store files in database
-    let mut db = DB.lock().map_err(|e| e.to_string())?;
+    // Store files in database without holding lock across await
     let mut indexed_count = 0;
-
-    for file in &files {
+    for mut file in files.clone() {
+        if file.thumbnail_path.is_none() {
+            if let Ok(thumb) = generate_thumbnail(&file.path, 300).await {
+                file.thumbnail_path = Some(thumb);
+            }
+        }
         println!("Adding file to DB: {}", file.name);
-        db.add_file(file.clone(), &root);
+        {
+            let mut db = DB.lock().map_err(|e| e.to_string())?;
+            db.add_file(file.clone(), &norm_root);
+        }
         indexed_count += 1;
     }
-    // Update last selected and auto include newly indexed folder if not present
-    db.last_selected_folder = Some(root.clone());
-    if !db.included_folders.iter().any(|f| f == &root) {
-        db.included_folders.push(root.clone());
+    {
+        let mut db = DB.lock().map_err(|e| e.to_string())?;
+    db.last_selected_folder = Some(norm_root.clone());
+        save_persisted_db(&db);
     }
 
-    // Persist after indexing
-    save_persisted_db(&db);
-
-    println!("Indexed {} files for folder: {}", indexed_count, root);
+    println!("Indexed {} files for folder: {}", indexed_count, norm_root);
 
     Ok(IndexResult {
         total_files: files.len(),
@@ -258,7 +303,6 @@ pub async fn get_indexed_folders() -> Result<Vec<String>, String> {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct LibraryState {
     pub last_selected_folder: Option<String>,
-    pub included_folders: Vec<String>,
     pub indexed_folders: Vec<String>,
 }
 
@@ -267,7 +311,6 @@ pub async fn get_library_state() -> Result<LibraryState, String> {
     let db = DB.lock().map_err(|e| e.to_string())?;
     Ok(LibraryState {
         last_selected_folder: db.last_selected_folder.clone(),
-        included_folders: db.included_folders.clone(),
         indexed_folders: db.get_indexed_folders(),
     })
 }
@@ -280,19 +323,12 @@ pub async fn update_last_selected_folder(folder: Option<String>) -> Result<(), S
     Ok(())
 }
 
-#[tauri::command]
-pub async fn set_included_folders(folders: Vec<String>) -> Result<(), String> {
-    let mut db = DB.lock().map_err(|e| e.to_string())?;
-    db.included_folders = folders;
-    save_persisted_db(&db);
-    Ok(())
-}
 
 #[tauri::command]
 pub async fn index_folder_streaming(
     app_handle: AppHandle,
     root: String,
-    recursive: bool,
+    _recursive: bool,
 ) -> Result<IndexResult, String> {
     let path = Path::new(&root);
     if !path.exists() {
@@ -323,38 +359,38 @@ pub async fn index_folder_streaming(
     // Emit scanning started
     app_handle.emit("indexing-progress", "Scanning for image files...").ok();
 
-    let files = scan_directory(path, recursive)
+    let files = scan_directory(path, false)
         .await
         .map_err(|e| e.to_string())?;
 
     println!("Scanned {} files, starting to index...", files.len());
     app_handle.emit("indexing-progress", format!("Found {} images, processing...", files.len())).ok();
 
-    // Store files in database and emit each file as it's added
-    let mut db = DB.lock().map_err(|e| e.to_string())?;
+    // Store files in database and emit each file as it's added (no long-held lock)
     let mut indexed_count = 0;
-
-    for (i, file) in files.iter().enumerate() {
+    for (i, mut file) in files.iter().cloned().enumerate() {
+        if file.thumbnail_path.is_none() {
+            if let Ok(thumb) = generate_thumbnail(&file.path, 300).await {
+                file.thumbnail_path = Some(thumb);
+            }
+        }
         println!("Adding file to DB: {}", file.name);
-        db.add_file(file.clone(), &root);
+        {
+            let mut db = DB.lock().map_err(|e| e.to_string())?;
+            db.add_file(file.clone(), &root);
+        }
         indexed_count += 1;
-        
-        // Emit progress every 10 files or on last file
         if i % 10 == 0 || i == files.len() - 1 {
             let progress_msg = format!("Indexed {} of {} images", i + 1, files.len());
             app_handle.emit("indexing-progress", &progress_msg).ok();
-            
-            // Emit file added event so UI can update incrementally
-            app_handle.emit("file-indexed", file).ok();
+            app_handle.emit("file-indexed", &file).ok();
         }
     }
-    // Update last selected and auto include newly indexed folder if not present
-    db.last_selected_folder = Some(root.clone());
-    if !db.included_folders.iter().any(|f| f == &root) {
-        db.included_folders.push(root.clone());
+    {
+        let mut db = DB.lock().map_err(|e| e.to_string())?;
+        db.last_selected_folder = Some(root.clone());
+        save_persisted_db(&db);
     }
-    // Persist after streaming indexing completed
-    save_persisted_db(&db);
     
     app_handle.emit("indexing-completed", &root).ok();
 
@@ -473,5 +509,20 @@ pub async fn open_in_explorer(file_path: String) -> Result<(), String> {
 pub async fn watch_folder(folder_path: String) -> Result<(), String> {
     // TODO: Implement folder watching with notify crate
     println!("Starting to watch folder: {}", folder_path);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reset_library() -> Result<(), String> {
+    {
+        let mut db = DB.lock().map_err(|e| e.to_string())?;
+        db.files.clear();
+        db.folders.clear();
+        db.albums.clear();
+        db.last_selected_folder = None;
+        db.path_index.clear();
+        save_persisted_db(&db);
+    }
+    println!("Library reset: all indexed data cleared");
     Ok(())
 }

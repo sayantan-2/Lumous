@@ -15,7 +15,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [isIndexing, setIsIndexing] = useState(false);
   const [indexingProgress, setIndexingProgress] = useState<string>("");
-  const [includedFolders, setIncludedFolders] = useState<string[]>([]);
+  // Removed includedFolders concept; we now show only the selected folder
   const [isSidebarSlim, setIsSidebarSlim] = useState(false);
   const [sortKey, setSortKey] = useState<'name'|'date'|'size'>('name');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
@@ -27,19 +27,14 @@ function App() {
       try {
         const state = await invoke<{
           last_selected_folder: string | null;
-          included_folders: string[];
           indexed_folders: string[];
         }>("get_library_state");
 
         if (state.indexed_folders?.length) {
-          // Use last selected if still exists; fallback to first indexed
           const toSelect = state.last_selected_folder && state.indexed_folders.includes(state.last_selected_folder)
             ? state.last_selected_folder
             : state.indexed_folders[0];
-          setSelectedFolder(toSelect);
-        }
-        if (state.included_folders?.length) {
-          setIncludedFolders(state.included_folders);
+          setSelectedFolder(toSelect || null);
         }
       } catch (e) {
         console.warn("Failed to load library state", e);
@@ -75,12 +70,11 @@ function App() {
       // Listen for individual file indexed (for real-time updates)
       const fileIndexedUnlisten = await listen('file-indexed', (event) => {
         const file = event.payload as FileMeta;
-        // Update the current query cache if we're viewing the same folder
-        if (selectedFolder && file.path.startsWith(selectedFolder)) {
+        if (selectedFolder && file.path.toLowerCase().startsWith(selectedFolder.toLowerCase())) {
           queryClient.setQueryData(["files", selectedFolder], (oldData: FileMeta[] | undefined) => {
             if (!oldData) return [file];
-            // Add file if not already present
-            const exists = oldData.some(f => f.id === file.id);
+            const norm = (p: string) => p.toLowerCase();
+            const exists = oldData.some(f => norm(f.path) === norm(file.path));
             return exists ? oldData : [...oldData, file];
           });
         }
@@ -121,55 +115,22 @@ function App() {
     isLoading: filesLoading,
     error: filesError
   } = useQuery({
-    queryKey: ["files", includedFolders],
+    queryKey: ["files", selectedFolder],
     queryFn: async (): Promise<FileMeta[]> => {
-      if (includedFolders.length === 0) {
-        console.log("No folders included, returning empty array");
+      if (!selectedFolder) return [];
+      try {
+        const files = await invoke("get_files", {
+          folderPath: selectedFolder,
+          offset: 0,
+          limit: 2000
+        }) as FileMeta[];
+        return files;
+      } catch (error) {
+        console.warn("Failed to load files for folder", selectedFolder, error);
         return [];
       }
-      
-      console.log("Loading files for ONLY these included folders:", includedFolders);
-      
-      // Get files from ONLY the included folders - NO RECURSION
-      const folderFilesPromises = includedFolders.map(async (folder) => {
-        try {
-          console.log(`Fetching files from EXACT folder: ${folder}`);
-          const files = await invoke("get_files", { 
-            folderPath: folder,
-            offset: 0, 
-            limit: 1000 
-          }) as FileMeta[];
-          
-          // Double-check: only include files that belong EXACTLY to this folder
-          const exactFiles = files.filter(file => {
-            const fileFolder = file.path.substring(0, file.path.lastIndexOf('\\') || file.path.lastIndexOf('/'));
-            const belongsToExactFolder = fileFolder.toLowerCase() === folder.toLowerCase();
-            if (!belongsToExactFolder) {
-              console.warn(`File ${file.path} filtered out - belongs to ${fileFolder}, not ${folder}`);
-            }
-            return belongsToExactFolder;
-          });
-          
-          console.log(`Found ${files.length} total files, ${exactFiles.length} exact files in ${folder}`);
-          return exactFiles;
-        } catch (error) {
-          console.warn(`Failed to load files from ${folder}:`, error);
-          return [] as FileMeta[];
-        }
-      });
-      
-      const allFolderFiles = await Promise.all(folderFilesPromises);
-      const flattenedFiles = allFolderFiles.flat();
-      
-      // Remove duplicates based on file path
-      const uniqueFiles = flattenedFiles.filter((file, index, self) => 
-        index === self.findIndex(f => f.path === file.path)
-      );
-      
-      console.log(`Total unique files from ${includedFolders.length} folders: ${uniqueFiles.length}`);
-      return uniqueFiles;
     },
-    enabled: includedFolders.length > 0,
+    enabled: !!selectedFolder,
   });
 
   // Filter files based on search query
@@ -196,20 +157,6 @@ function App() {
     return base;
   }, [filtered, sortKey, sortDir]);
 
-  const handleFolderInclusionChange = (folderPath: string, included: boolean) => {
-    setIncludedFolders(prev => {
-      let next = prev;
-      if (included && !prev.includes(folderPath)) {
-        next = [...prev, folderPath];
-      } else if (!included && prev.includes(folderPath)) {
-        next = prev.filter(f => f !== folderPath);
-      }
-      // Persist change
-      invoke("set_included_folders", { folders: next }).catch(err => console.warn("Persist include failed", err));
-      return next;
-    });
-  };
-
   const handleFolderSelect = async (folderPath: string) => {
     try {
       console.log("Selecting folder:", folderPath);
@@ -227,14 +174,6 @@ function App() {
       if (isAlreadyIndexed) {
         console.log("Folder already indexed");
         setIndexingProgress("Folder already indexed");
-        // Ensure it's in the included folders so images load in the grid
-        if (!includedFolders.includes(folderPath)) {
-          setIncludedFolders(prev => {
-            const next = [...prev, folderPath];
-            invoke("set_included_folders", { folders: next }).catch(() => {});
-            return next;
-          });
-        }
         // Clear progress shortly after informing user
         setTimeout(() => setIndexingProgress(""), 800);
         return; // No need to re-index
@@ -244,15 +183,9 @@ function App() {
       console.log("Starting streaming indexing...");
       const result = await invoke("index_folder_streaming", { 
         root: folderPath, 
-        recursive: true 
+        recursive: false // ignored (always non-recursive now)
       });
       console.log("Streaming indexing completed:", result);
-      
-      // Auto-include newly indexed folder only
-      if (!includedFolders.includes(folderPath)) {
-        setIncludedFolders(prev => [...prev, folderPath]);
-  invoke("set_included_folders", { folders: [...includedFolders, folderPath] }).catch(() => {});
-      }
       
     } catch (error) {
       console.error("Failed to process folder:", error);
@@ -284,8 +217,6 @@ function App() {
         onFolderSelect={handleFolderSelect}
         isIndexing={isIndexing}
         indexingProgress={indexingProgress}
-        includedFolders={includedFolders}
-        onFolderInclusionChange={handleFolderInclusionChange}
         isSlim={isSidebarSlim}
         onToggleSlim={() => setIsSidebarSlim(!isSidebarSlim)}
       />

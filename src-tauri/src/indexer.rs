@@ -9,14 +9,11 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "ico"
 ];
 
-pub async fn scan_directory(root: &Path, recursive: bool) -> Result<Vec<FileMeta>, Box<dyn std::error::Error + Send + Sync>> {
+pub async fn scan_directory(root: &Path, _recursive: bool) -> Result<Vec<FileMeta>, Box<dyn std::error::Error + Send + Sync>> {
     let mut files = Vec::new();
     
-    let walker = if recursive {
-        WalkDir::new(root).into_iter()
-    } else {
-        WalkDir::new(root).max_depth(1).into_iter()
-    };
+    // Force non-recursive (max_depth = 1)
+    let walker = WalkDir::new(root).max_depth(1).into_iter();
 
     for entry in walker.filter_map(|e| e.ok()) {
         if entry.file_type().is_file() {
