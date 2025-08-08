@@ -18,6 +18,32 @@ function App() {
   const [isSidebarSlim, setIsSidebarSlim] = useState(false);
   const queryClient = useQueryClient();
 
+  // Restore full library state (last selected + included folders) once on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const state = await invoke<{
+          last_selected_folder: string | null;
+          included_folders: string[];
+          indexed_folders: string[];
+        }>("get_library_state");
+
+        if (state.indexed_folders?.length) {
+          // Use last selected if still exists; fallback to first indexed
+          const toSelect = state.last_selected_folder && state.indexed_folders.includes(state.last_selected_folder)
+            ? state.last_selected_folder
+            : state.indexed_folders[0];
+          setSelectedFolder(toSelect);
+        }
+        if (state.included_folders?.length) {
+          setIncludedFolders(state.included_folders);
+        }
+      } catch (e) {
+        console.warn("Failed to load library state", e);
+      }
+    })();
+  }, []);
+
   // Listen for indexing events
   useEffect(() => {
     const setupEventListeners = async () => {
@@ -156,12 +182,15 @@ function App() {
 
   const handleFolderInclusionChange = (folderPath: string, included: boolean) => {
     setIncludedFolders(prev => {
+      let next = prev;
       if (included && !prev.includes(folderPath)) {
-        return [...prev, folderPath];
+        next = [...prev, folderPath];
       } else if (!included && prev.includes(folderPath)) {
-        return prev.filter(f => f !== folderPath);
+        next = prev.filter(f => f !== folderPath);
       }
-      return prev;
+      // Persist change
+      invoke("set_included_folders", { folders: next }).catch(err => console.warn("Persist include failed", err));
+      return next;
     });
   };
 
@@ -174,6 +203,7 @@ function App() {
       
       // Set new folder immediately to show it in UI
       setSelectedFolder(folderPath);
+  invoke("update_last_selected_folder", { folder: folderPath }).catch(() => {});
       
       // Check if folder is already indexed
       const isAlreadyIndexed = await invoke("is_folder_indexed", { folderPath: folderPath });
@@ -198,6 +228,7 @@ function App() {
       // Auto-include newly indexed folder only
       if (!includedFolders.includes(folderPath)) {
         setIncludedFolders(prev => [...prev, folderPath]);
+  invoke("set_included_folders", { folders: [...includedFolders, folderPath] }).catch(() => {});
       }
       
     } catch (error) {

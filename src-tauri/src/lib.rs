@@ -11,6 +11,8 @@ pub fn run() {
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .setup(|app| {
+  // Load persisted DB (best-effort) at startup
+  initialize_persistent_db();
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -35,7 +37,10 @@ pub fn run() {
       edit_image,
       export_metadata,
       open_in_explorer,
-      watch_folder
+  watch_folder,
+  get_library_state,
+  update_last_selected_folder,
+  set_included_folders
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");

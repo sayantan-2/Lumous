@@ -1,17 +1,49 @@
 use crate::models::*;
 use crate::indexer::scan_directory;
 use crate::thumbnail::generate_thumbnail;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use tauri::{Emitter, AppHandle};
+use serde::{Serialize, Deserialize};
+use std::fs;
 
-// Simple in-memory database with folder support
+// ------------------------------
+// Persistence helpers
+// ------------------------------
+fn db_file_path() -> PathBuf {
+    // Use OS data dir, fall back to current dir
+    let base = dirs::data_dir().unwrap_or_else(|| std::env::current_dir().unwrap());
+    base.join("local-gallery").join("db.json")
+}
+
+fn load_persisted_db() -> Option<SimpleDB> {
+    let path = db_file_path();
+    if !path.exists() { return None; }
+    match fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).ok(),
+        Err(_) => None,
+    }
+}
+
+fn save_persisted_db(db: &SimpleDB) {
+    let path = db_file_path();
+    if let Some(parent) = path.parent() { let _ = fs::create_dir_all(parent); }
+    if let Ok(json) = serde_json::to_string_pretty(db) {
+        let _ = fs::write(path, json);
+    }
+}
+
+// Simple database with folder support (now persisted as JSON)
+#[derive(Serialize, Deserialize, Default)]
 struct SimpleDB {
     files: HashMap<String, FileMeta>, // key: file_id, value: file
     folders: HashMap<String, Vec<String>>, // key: folder_path, value: file_ids
     albums: HashMap<String, Album>,
+    // Library metadata
+    last_selected_folder: Option<String>,
+    included_folders: Vec<String>,
 }
 
 impl SimpleDB {
@@ -20,6 +52,8 @@ impl SimpleDB {
             files: HashMap::new(),
             folders: HashMap::new(),
             albums: HashMap::new(),
+            last_selected_folder: None,
+            included_folders: Vec::new(),
         }
     }
 
@@ -100,9 +134,22 @@ impl SimpleDB {
     fn get_indexed_folders(&self) -> Vec<String> {
         self.folders.keys().cloned().collect()
     }
-}static DB: Lazy<Mutex<SimpleDB>> = Lazy::new(|| {
-    Mutex::new(SimpleDB::new())
+}
+
+static DB: Lazy<Mutex<SimpleDB>> = Lazy::new(|| {
+    // Attempt to load persisted DB at static init (best-effort).
+    let db = load_persisted_db().unwrap_or_else(SimpleDB::new);
+    Mutex::new(db)
 });
+
+/// Called from setup if we want to force a re-load (e.g. future migrations)
+pub fn initialize_persistent_db() {
+    if let Some(persisted) = load_persisted_db() {
+        if let Ok(mut guard) = DB.lock() {
+            *guard = persisted;
+        }
+    }
+}
 
 #[tauri::command]
 pub async fn get_settings() -> Result<AppSettings, String> {
@@ -155,6 +202,14 @@ pub async fn index_folder(root: String, recursive: bool) -> Result<IndexResult, 
         db.add_file(file.clone(), &root);
         indexed_count += 1;
     }
+    // Update last selected and auto include newly indexed folder if not present
+    db.last_selected_folder = Some(root.clone());
+    if !db.included_folders.iter().any(|f| f == &root) {
+        db.included_folders.push(root.clone());
+    }
+
+    // Persist after indexing
+    save_persisted_db(&db);
 
     println!("Indexed {} files for folder: {}", indexed_count, root);
 
@@ -195,6 +250,42 @@ pub async fn is_folder_indexed(folder_path: String) -> Result<bool, String> {
 pub async fn get_indexed_folders() -> Result<Vec<String>, String> {
     let db = DB.lock().map_err(|e| e.to_string())?;
     Ok(db.get_indexed_folders())
+}
+
+// ------------------------------
+// Library state / metadata
+// ------------------------------
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LibraryState {
+    pub last_selected_folder: Option<String>,
+    pub included_folders: Vec<String>,
+    pub indexed_folders: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn get_library_state() -> Result<LibraryState, String> {
+    let db = DB.lock().map_err(|e| e.to_string())?;
+    Ok(LibraryState {
+        last_selected_folder: db.last_selected_folder.clone(),
+        included_folders: db.included_folders.clone(),
+        indexed_folders: db.get_indexed_folders(),
+    })
+}
+
+#[tauri::command]
+pub async fn update_last_selected_folder(folder: Option<String>) -> Result<(), String> {
+    let mut db = DB.lock().map_err(|e| e.to_string())?;
+    db.last_selected_folder = folder;
+    save_persisted_db(&db);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn set_included_folders(folders: Vec<String>) -> Result<(), String> {
+    let mut db = DB.lock().map_err(|e| e.to_string())?;
+    db.included_folders = folders;
+    save_persisted_db(&db);
+    Ok(())
 }
 
 #[tauri::command]
@@ -257,6 +348,13 @@ pub async fn index_folder_streaming(
             app_handle.emit("file-indexed", file).ok();
         }
     }
+    // Update last selected and auto include newly indexed folder if not present
+    db.last_selected_folder = Some(root.clone());
+    if !db.included_folders.iter().any(|f| f == &root) {
+        db.included_folders.push(root.clone());
+    }
+    // Persist after streaming indexing completed
+    save_persisted_db(&db);
     
     app_handle.emit("indexing-completed", &root).ok();
 
@@ -293,6 +391,8 @@ pub async fn create_album(name: String, description: Option<String>) -> Result<A
 
     let album = Album::new(name, description);
     db.add_album(album.clone());
+
+    save_persisted_db(&db);
 
     Ok(album)
 }
