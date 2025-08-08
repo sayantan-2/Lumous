@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileGrid } from "./components/FileGrid";
 import { Sidebar } from "./components/Sidebar";
@@ -7,6 +7,7 @@ import { WelcomeScreen } from "./components/WelcomeScreen";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AppSettings, FileMeta } from "./types";
+import { naturalSortFiles } from "./lib/utils";
 
 function App() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -16,6 +17,8 @@ function App() {
   const [indexingProgress, setIndexingProgress] = useState<string>("");
   const [includedFolders, setIncludedFolders] = useState<string[]>([]);
   const [isSidebarSlim, setIsSidebarSlim] = useState(false);
+  const [sortKey, setSortKey] = useState<'name'|'date'|'size'>('name');
+  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
   const queryClient = useQueryClient();
 
   // Restore full library state (last selected + included folders) once on mount
@@ -170,7 +173,7 @@ function App() {
   });
 
   // Filter files based on search query
-  const files = allFiles.filter(file => {
+  const filtered = allFiles.filter(file => {
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -179,6 +182,19 @@ function App() {
       file.file_type.toLowerCase().includes(query)
     );
   });
+  // Sort according to sortKey/sortDir
+  const files = useMemo(()=> {
+    let base: FileMeta[];
+    if (sortKey === 'name') {
+      base = naturalSortFiles(filtered);
+    } else if (sortKey === 'date') {
+      base = [...filtered].sort((a,b)=> (new Date(a.modified).getTime() - new Date(b.modified).getTime()));
+    } else { // size
+      base = [...filtered].sort((a,b)=> a.size - b.size);
+    }
+    if (sortDir === 'desc') base.reverse();
+    return base;
+  }, [filtered, sortKey, sortDir]);
 
   const handleFolderInclusionChange = (folderPath: string, included: boolean) => {
     setIncludedFolders(prev => {
@@ -280,6 +296,10 @@ function App() {
           onFolderChange={handleFolderSelect}
           fileCount={files.length}
           onSearch={handleSearch}
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onChangeSortKey={setSortKey}
+          onChangeSortDir={() => setSortDir(d=> d==='asc'?'desc':'asc')}
         />
 
   <main className="flex-1 overflow-hidden min-h-0">

@@ -1,6 +1,6 @@
 /* eslint-disable */
-import { useMemo, useState, useEffect, useRef } from "react";
-import { FixedSizeGrid as Grid } from "react-window";
+import { useState, useEffect, useRef } from "react";
+/* eslint-disable */
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { FileMeta } from "../types";
 import { cn } from "../lib/utils";
@@ -14,114 +14,24 @@ interface FileGridProps {
   isSidebarSlim: boolean; // kept (future styling) but no longer used for width calc
 }
 
-interface ThumbnailItemProps {
-  columnIndex: number;
-  rowIndex: number;
-  style: React.CSSProperties;
-  data: {
-    files: FileMeta[];
-    columnsPerRow: number;
-    thumbnailSize: number;
-    onImageClick: (index: number) => void;
-  };
-}
-
-function ThumbnailItem({ columnIndex, rowIndex, style, data }: ThumbnailItemProps) {
-  const { files, columnsPerRow, thumbnailSize, onImageClick } = data;
-  const index = rowIndex * columnsPerRow + columnIndex;
-  const file = files[index];
-
-  if (!file) {
-    return <div className="file-grid-cell" style={style} />;
-  }
-
-  const fileName = file.path.split(/[/\\]/).pop() || file.path;
-
-  return (
-    <div style={style} className="file-grid-cell p-2">
-      <div
-        className={cn(
-          "relative group cursor-pointer rounded-lg overflow-hidden",
-          "hover:shadow-lg transition-all duration-200",
-          "bg-muted"
-        )}
-        style={{ aspectRatio: "1" }}
-        onClick={() => onImageClick(index)}
-      >
-        {/* Display the actual image */}
-        <div className="w-full h-full relative">
-          <img
-            src={convertFileSrc(file.path)}
-            alt={fileName}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              console.error('Failed to load image:', file.path);
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-            }}
-          />
-        </div>
-
-        {/* Overlay on hover */}
-        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
-          <div className="text-white text-sm font-medium">
-            View
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// NOTE: Virtualization removed in favor of pure CSS grid for perfect edge alignment.
+// If performance becomes an issue with very large libraries, we can reintroduce virtualization
+// using a custom outer/inner element pairing once layout math is fully locked in.
 
 export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: FileGridProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
-
-  // Observe container size (more accurate than window - sidebar heuristic)
+  // Full-width container; we keep ref for future resize-based responsive logic if needed.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => {
-      setContainerSize({ width: el.clientWidth, height: el.clientHeight });
-    };
+    const measure = () => setContainerSize({ width: el.clientWidth, height: el.clientHeight });
     measure();
-    const ro = new ResizeObserver(() => measure());
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    window.addEventListener('resize', measure);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener('resize', measure);
-    };
+    return () => ro.disconnect();
   }, []);
-
-  const { columnsPerRow, rowCount, gridWidth, gridHeight, columnWidth, rowHeight } = useMemo(() => {
-    // Fallback if resize observer hasn't fired yet (0 width) use window innerWidth minus an estimated sidebar
-    const estimatedSidebar = 280; // matches expanded sidebar width
-    const availableWidth = containerSize.width || Math.max(0, window.innerWidth - estimatedSidebar);
-    const availableHeight = containerSize.height || (window.innerHeight - 80); // fallback
-    if (!availableWidth) {
-      return { columnsPerRow: 1, rowCount: files.length, gridWidth: availableWidth, gridHeight: availableHeight, columnWidth: thumbnailSize + 16, rowHeight: thumbnailSize + 16 };
-    }
-    const gapOuter = 20; // target gap (equals cell padding total) to keep at right edge
-    // Reserve gapOuter first, then compute how many base cells fit
-    const baseOuter = thumbnailSize + gapOuter; // desired nominal outer cell size (thumb + gap)
-    const cols = Math.max(1, Math.floor((availableWidth - gapOuter) / baseOuter));
-    const rawUsed = cols * baseOuter; // without right gutter
-    const leftover = Math.max(0, availableWidth - rawUsed - gapOuter); // distributable space to avoid large gutter
-    const stretchPerCol = leftover / cols; // distribute so only gapOuter remains as gutter
-    const finalOuter = baseOuter + stretchPerCol; // stretched outer (can be fractional)
-    const gridWidth = finalOuter * cols + gapOuter; // should equal availableWidth (floating point safe)
-    const rows = Math.ceil(files.length / cols);
-    return {
-      columnsPerRow: cols,
-      rowCount: rows,
-      gridWidth,
-      gridHeight: availableHeight,
-      columnWidth: finalOuter,
-      rowHeight: finalOuter
-    };
-  }, [containerSize, thumbnailSize, files.length]);
 
   const handleImageClick = (index: number) => {
     setSelectedImageIndex(index);
@@ -172,25 +82,47 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
 
   return (
     <div ref={containerRef} className="h-full w-full overflow-hidden min-h-0">
-      {gridWidth > 0 && gridHeight > 0 && (
-        <Grid
-          columnCount={columnsPerRow}
-          columnWidth={columnWidth}
-          height={gridHeight}
-          rowCount={rowCount}
-          rowHeight={rowHeight}
-          width={gridWidth}
-          itemData={{
-            files,
-            columnsPerRow,
-            thumbnailSize, // original intended base; actual rendered may stretch slightly
-            onImageClick: handleImageClick,
+      <div
+        className={cn(
+          "h-full w-full overflow-auto",
+          "[scrollbar-gutter:stable]", // avoid horizontal shifts
+          "pr-3" // intentional right gap
+        )}
+      >
+        <div
+          className={cn(
+            "grid gap-3 p-3",
+            "grid-cols-[repeat(auto-fill,minmax(var(--thumb-size),1fr))]"
+          )}
+          style={{
+            // Use CSS var for min size; ensures consistent column baseline
+            ['--thumb-size' as any]: `${thumbnailSize}px`
           }}
         >
-          {ThumbnailItem}
-        </Grid>
-      )}
-
+          {files.map((file, index) => {
+            const fileName = file.path.split(/[/\\\\]/).pop() || file.path;
+            return (
+              <div key={file.id || file.path} className="group cursor-pointer select-none" onClick={() => handleImageClick(index)}>
+                <div className="relative rounded-lg overflow-hidden bg-muted aspect-square hover:shadow-lg transition-shadow">
+                  <img
+                    src={convertFileSrc(file.path)}
+                    alt={fileName}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={(e) => {
+                      console.error('Failed to load image:', file.path);
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="text-white text-xs font-medium">View</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
       {selectedImageIndex !== null && (
         <ImageViewer
           files={files}

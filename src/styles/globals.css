@@ -60,6 +60,10 @@
 }
 
 /* Custom scrollbar styles */
+/* Reserve space for scrollbar to prevent layout shift / gaps */
+.scroll-stable {
+  scrollbar-gutter: stable;
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

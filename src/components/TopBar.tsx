@@ -3,15 +3,20 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { Button } from "./ui/Button";
 import { SearchBar } from "./SearchBar";
+import { SortDropdown } from "./SortDropdown";
 
 interface TopBarProps {
   folderPath: string;
   onFolderChange: (folderPath: string) => void;
   fileCount: number;
   onSearch: (query: string) => void;
+  sortKey: 'name'|'date'|'size';
+  sortDir: 'asc'|'desc';
+  onChangeSortKey: (k: 'name'|'date'|'size') => void;
+  onChangeSortDir: () => void;
 }
 
-export function TopBar({ folderPath, onFolderChange, fileCount, onSearch }: TopBarProps) {
+export function TopBar({ folderPath, onFolderChange, fileCount, onSearch, sortKey, sortDir, onChangeSortKey, onChangeSortDir }: TopBarProps) {
   const [theme, setTheme] = useState<string>("dark");
   const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
 
@@ -51,6 +56,12 @@ export function TopBar({ folderPath, onFolderChange, fileCount, onSearch }: TopB
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <SortDropdown
+          sortKey={sortKey}
+          sortDir={sortDir}
+          onChangeSortKey={onChangeSortKey}
+          onChangeSortDir={d => onChangeSortDir()}
+        />
         <div className="w-64"><SearchBar onSearch={onSearch} /></div>
         <Button variant="ghost" size="icon" onClick={cycleTheme} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}>
           {theme === 'dark' ? <Moon className="w-4 h-4"/> : <Sun className="w-4 h-4"/>}
