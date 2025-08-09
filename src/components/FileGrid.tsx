@@ -13,12 +13,13 @@ interface FileGridProps {
   thumbnailSize: number;
   loadingMessage?: string;
   isSidebarSlim: boolean; // kept (future styling) but no longer used for width calc
+  imagesPerRow?: number | null;
 }
 
 // NOTE: Virtualization enabled via react-window FixedSizeGrid for performance with large libraries.
 // We keep layout math simple (square cells) for predictable virtualization.
 
-export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: FileGridProps) {
+export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage, imagesPerRow }: FileGridProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
   // Measure the scroll container (fills flex space) to size the virtual grid correctly
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -64,25 +65,28 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
   // Virtualized grid math
   const gap = 12; // Tailwind gap-3
   const padding = 12; // Tailwind p-3
-  const columnWidth = thumbnailSize; // content square
-  const rowHeight = thumbnailSize; // content square
+  // Base desired square size; overridden when imagesPerRow is set
+  const baseSize = thumbnailSize;
   const viewportWidth = Math.max(0, containerSize.width - padding * 2);
   const cols = useMemo(() => {
     if (viewportWidth <= 0) return 1;
-    // effective column slot includes cell size + gap; last column doesn't need trailing gap
-    const slot = columnWidth + gap;
-    const count = Math.max(1, Math.floor((viewportWidth + gap) / slot));
-    return count;
-  }, [viewportWidth, columnWidth]);
+    if (imagesPerRow && imagesPerRow > 0) return Math.max(1, Math.min(12, imagesPerRow));
+    const slot = baseSize + gap; // preferred slot size
+    return Math.max(1, Math.floor((viewportWidth + gap) / slot));
+  }, [viewportWidth, baseSize, imagesPerRow]);
+
+  // Compute the actual content width for each cell based on chosen column count
+  const contentSize = useMemo(() => {
+    if (viewportWidth <= 0) return baseSize;
+    if (cols <= 0) return baseSize;
+    const size = Math.floor((viewportWidth - gap * (cols - 1)) / cols);
+    return Math.max(80, Math.min(640, size));
+  }, [viewportWidth, cols]);
+  const columnWidth = contentSize; // content square
+  const rowHeight = contentSize;   // content square
   const rowCount = useMemo(() => Math.ceil(files.length / cols), [files.length, cols]);
 
-  const sizeClass = useMemo(() => {
-    if (thumbnailSize <= 160) return "thumb-150";
-    if (thumbnailSize <= 190) return "thumb-180";
-    if (thumbnailSize <= 210) return "thumb-200";
-    if (thumbnailSize <= 230) return "thumb-220";
-    return "thumb-240";
-  }, [thumbnailSize]);
+  // No fixed size class; the cell fills the computed size
 
   const cellRenderer = useCallback(({ columnIndex, rowIndex, style }: GridChildComponentProps) => {
     const index = rowIndex * cols + columnIndex;
@@ -93,12 +97,15 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
     const fileName = file.path.split(/[\\/]/).pop() || file.path;
     const displayPath = file.thumbnail_path || file.path;
     return (
-      <div style={style} className="p-1">
+      <div style={style}>
         <div
           className="group cursor-pointer select-none"
           onClick={() => handleImageClick(index)}
         >
-          <div className={cn("relative rounded-lg overflow-hidden bg-muted hover:shadow-lg transition-shadow", sizeClass)}>
+          <div
+            className={cn("relative rounded-lg overflow-hidden bg-muted hover:shadow-lg transition-shadow")}
+            style={{ width: contentSize, height: contentSize }}
+          >
             <img
               src={convertFileSrc(displayPath)}
               alt={fileName}
@@ -117,13 +124,13 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
         </div>
       </div>
     );
-  }, [files, cols, columnWidth, rowHeight]);
+  }, [files, cols, contentSize]);
 
   // Early returns (after hooks to keep order stable across renders)
   if (isLoading) {
     const isIndexing = loadingMessage && loadingMessage.includes("indexing");
     return (
-      <div className="flex items-center justify-center h-full">
+  <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center">
         <div className="text-center max-w-md">
           <div className="animate-pulse mb-4">
             <div className="w-16 h-16 bg-muted rounded-lg mx-auto"></div>
@@ -149,7 +156,7 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
 
   if (files.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full">
+  <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold mb-2">No images found</h2>
           <p className="text-muted-foreground">

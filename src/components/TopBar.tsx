@@ -15,9 +15,12 @@ interface TopBarProps {
   sortDir: 'asc'|'desc';
   onChangeSortKey: (k: 'name'|'date'|'size') => void;
   onChangeSortDir: () => void;
+  imagesPerRow: number | null;
+  onDecPerRow: () => void;
+  onIncPerRow: () => void;
 }
 
-export function TopBar({ folderPath, onFolderChange, fileCount, onSearch, sortKey, sortDir, onChangeSortKey, onChangeSortDir }: TopBarProps) {
+export function TopBar({ folderPath, onFolderChange, fileCount, onSearch, sortKey, sortDir, onChangeSortKey, onChangeSortDir, imagesPerRow, onDecPerRow, onIncPerRow }: TopBarProps) {
   const [theme, setTheme] = useState<string>("dark");
   const folderName = folderPath.split(/[/\\]/).pop() || folderPath;
   const [bgIndexing, setBgIndexing] = useState(false);
@@ -74,6 +77,18 @@ export function TopBar({ folderPath, onFolderChange, fileCount, onSearch, sortKe
         </div>
       </div>
       <div className="flex items-center gap-3">
+        {/* Images-per-row controls */}
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={onDecPerRow} title="Fewer per row">
+            −
+          </Button>
+          <span className="text-xs w-10 text-center" title="Images per row">
+            {imagesPerRow ?? 'auto'}
+          </span>
+          <Button variant="ghost" size="icon" onClick={onIncPerRow} title="More per row">
+            +
+          </Button>
+        </div>
         <SortDropdown
           sortKey={sortKey}
           sortDir={sortDir}

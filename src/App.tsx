@@ -24,6 +24,24 @@ function App() {
   const [toastOpen, setToastOpen] = useState(false);
   const [toastTitle, setToastTitle] = useState("");
   const [toastDesc, setToastDesc] = useState<string | undefined>(undefined);
+  // UI control: images per row (null -> auto by size). Persist locally only.
+  const [imagesPerRow, setImagesPerRow] = useState<number | null>(() => {
+    const raw = localStorage.getItem("lg.imagesPerRow");
+    const n = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
+  const updateImagesPerRow = (n: number | null) => {
+    if (n === null) {
+      setImagesPerRow(null);
+      localStorage.removeItem("lg.imagesPerRow");
+    } else {
+      const clamped = Math.max(1, Math.min(12, Math.round(n)));
+      setImagesPerRow(clamped);
+      localStorage.setItem("lg.imagesPerRow", String(clamped));
+    }
+  };
+
+  
 
   // Restore full library state (last selected + included folders) once on mount
   useEffect(() => {
@@ -175,6 +193,29 @@ function App() {
     },
   });
 
+  // Helper to derive an automatic starting per-row count when switching from auto
+  const computeAutoPerRow = () => {
+    const base = (settings?.thumbnailSize || 200) + 12; // include gap
+    const vw = typeof window !== 'undefined' ? window.innerWidth : 1200;
+    return Math.max(1, Math.floor((vw - 48) / base)); // minus padding margin a bit
+  };
+
+  // Keyboard shortcuts: Ctrl +/- to change images-per-row (does not affect gap)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || (e as any).metaKey)) return;
+      const k = e.key;
+      const inc = k === '+' || k === '=' || k === 'Add';
+      const dec = k === '-' || k === 'Subtract';
+      if (!inc && !dec) return;
+      e.preventDefault();
+      const current = imagesPerRow ?? computeAutoPerRow();
+      updateImagesPerRow(dec ? current - 1 : current + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [imagesPerRow, settings?.thumbnailSize]);
+
   // Load files from included folders when selection changes
   const {
     data: allFiles = [],
@@ -289,6 +330,9 @@ function App() {
           sortDir={sortDir}
           onChangeSortKey={setSortKey}
           onChangeSortDir={() => setSortDir(d=> d==='asc'?'desc':'asc')}
+          imagesPerRow={imagesPerRow}
+          onDecPerRow={() => updateImagesPerRow(Math.max(1, (imagesPerRow ?? Math.max(1, Math.floor((window.innerWidth||1200)/((settings?.thumbnailSize||200)+12)))) ) - 1)}
+          onIncPerRow={() => updateImagesPerRow((imagesPerRow ?? Math.max(1, Math.floor((window.innerWidth||1200)/((settings?.thumbnailSize||200)+12)))) + 1)}
         />
 
   <main className="flex-1 overflow-hidden min-h-0 flex">
@@ -308,6 +352,7 @@ function App() {
               thumbnailSize={settings?.thumbnailSize || 200}
               loadingMessage={filesLoading ? "Loading images..." : ""}
               isSidebarSlim={isSidebarSlim}
+              imagesPerRow={imagesPerRow}
             />
           )}
         </main>
