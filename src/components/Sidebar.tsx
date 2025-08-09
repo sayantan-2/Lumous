@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Grid, Heart, Tags, Star, Plus, Settings, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { AlertDialog, AlertAction, AlertCancel } from "./ui/AlertDialog";
 import { FolderExplorer } from "./FolderExplorer";
@@ -67,7 +67,6 @@ export function Sidebar({
   };
 
   const handleToggleSlim = () => onToggleSlim();
-  const [showSettings, setShowSettings] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
 
@@ -117,15 +116,8 @@ export function Sidebar({
         </Button>
       </div>
 
-      {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Current Folder Section */}
-        {!isSlim && (
-          <div className="px-3 py-2 border-b space-y-1">
-            <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Current</div>
-            <div className="text-sm truncate" title={folderPath}>{getFolderName(folderPath)}</div>
-          </div>
-        )}
+  {/* Main content */}
+  <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Navigation Content */}
         <nav className="flex-1 px-3 py-3 space-y-5 overflow-y-auto">
@@ -145,53 +137,32 @@ export function Sidebar({
               condensed={isSlim}
             />
           </div>
-          <div className="space-y-2">
-            {!isSlim && (
-              <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Filters</div>
-            )}
-            <div className={`flex flex-col gap-1 ${isSlim ? 'items-center' : ''}`}>
-              <Button variant="ghost" className={cnFilterBtn(isSlim)} title="Favorites">
-                <Star className="w-4 h-4" />
-                {!isSlim && <span>Favorites</span>}
-              </Button>
-              <Button variant="ghost" className={cnFilterBtn(isSlim)} title="Recently Added">
-                <Heart className="w-4 h-4" />
-                {!isSlim && <span>Recently Added</span>}
-              </Button>
-              <Button variant="ghost" className={cnFilterBtn(isSlim)} title="Tagged">
-                <Tags className="w-4 h-4" />
-                {!isSlim && <span>Tagged</span>}
-              </Button>
-            </div>
-          </div>
+          {/* Filters removed as requested */}
         </nav>
 
         {/* Footer Section */}
         <div className="px-3 py-3 border-t space-y-3">
-          {/* Settings Button */}
-          <Button variant="ghost" className={`w-full justify-start ${isSlim ? 'p-0 h-8 flex items-center justify-center' : ''}`} title="Settings" onClick={()=>setShowSettings(s=>!s)}>
-            <Settings className="w-4 h-4" />
-            {!isSlim && <span className="ml-2">Settings</span>}
+          {/* Dedicated Reset button at bottom */}
+          <Button
+            variant="ghost"
+            disabled={resetting}
+            onClick={() => setShowResetConfirm(true)}
+            className={`w-full ${isSlim ? 'justify-center' : 'justify-start'} text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30`}
+            title="Clear in-app database (does not delete actual image files)"
+          >
+            <Trash2 className="w-4 h-4" />
+            {!isSlim && <span className="ml-2">{resetting ? 'Resetting…' : 'Reset Library'}</span>}
           </Button>
-          {showSettings && !isSlim && (
-            <div className="p-2 rounded border bg-muted/40 space-y-2">
-              <div className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Maintenance</div>
-              <Button variant="ghost" disabled={resetting} onClick={() => setShowResetConfirm(true)} className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30" title="Clear in-app database (does not delete actual image files)">
-                <Trash2 className="w-4 h-4"/>
-                <span className="ml-2">{resetting?"Resetting...":"Reset Library"}</span>
-              </Button>
-              <AlertDialog
-                open={showResetConfirm}
-                onOpenChange={(o) => !o && setShowResetConfirm(false)}
-                title="Reset entire library?"
-                description="This clears all indexed entries and thumbnails. Your original files on disk remain untouched."
-              >
-                <AlertCancel onClick={() => setShowResetConfirm(false)}>Cancel</AlertCancel>
-                <AlertAction tone="danger" onClick={handleReset}>Reset</AlertAction>
-              </AlertDialog>
-              <p className="text-[10px] leading-relaxed text-muted-foreground">Removes indexed entries & thumbnails. Use if you see duplicate images.</p>
-            </div>
-          )}
+          <AlertDialog
+            open={showResetConfirm}
+            onOpenChange={(o) => !o && setShowResetConfirm(false)}
+            title="Reset entire library?"
+            description="This clears all indexed entries and thumbnails. Your original files on disk remain untouched."
+            tone="danger"
+          >
+            <AlertCancel onClick={() => setShowResetConfirm(false)}>Cancel</AlertCancel>
+            <AlertAction tone="danger" onClick={handleReset}>Reset</AlertAction>
+          </AlertDialog>
 
           {/* Status Info */}
           {!isSlim && (
@@ -223,6 +194,4 @@ export function Sidebar({
 }
 
 // Local helper for different button layout in slim vs expanded
-function cnFilterBtn(isSlim: boolean) {
-  return isSlim ? "w-8 h-8 p-0 flex items-center justify-center" : "justify-start w-full";
-}
+// (Filters removed)

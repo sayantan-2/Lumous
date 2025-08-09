@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Folder, FolderOpen, Search, MoreVertical, Trash2, RefreshCcw } from "lucide-react";
+import { Folder, FolderOpen, MoreVertical, Trash2, RefreshCcw } from "lucide-react";
 import { DropdownMenu, DropdownItem, DropdownSeparator } from "./ui/DropdownMenu";
 import { AlertDialog, AlertAction, AlertCancel } from "./ui/AlertDialog";
 import { invoke } from "@tauri-apps/api/core";
@@ -18,7 +18,6 @@ export function FolderExplorer({
   onFolderSelect,
   condensed = false,
 }: FolderExplorerProps) {
-  const [filter, setFilter] = useState("");
   const [openMenuPath, setOpenMenuPath] = useState<string | null>(null);
   const [confirmResetFor, setConfirmResetFor] = useState<string | null>(null);
 
@@ -44,13 +43,8 @@ export function FolderExplorer({
         path,
         name: path.split(/[/\\]/).filter(Boolean).pop() || path,
       }))
-      .filter((f) => {
-        if (!filter.trim()) return true;
-        const q = filter.toLowerCase();
-        return f.name.toLowerCase().includes(q) || f.path.toLowerCase().includes(q);
-      })
       .sort((a, b) => naturalCompare(a.name, b.name));
-  }, [folders, filter]);
+  }, [folders]);
 
   if (!folders.length)
     return (
@@ -58,18 +52,7 @@ export function FolderExplorer({
     );
 
   return (
-    <div className="flex flex-col gap-2">
-      {!condensed && (
-        <div className="relative">
-          <input
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter folders..."
-            className="w-full rounded bg-muted/50 px-6 py-1.5 text-xs outline-none focus:ring-1 ring-primary"
-          />
-          <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        </div>
-      )}
+  <div className="flex flex-col gap-2">
       <div className="max-h-72 overflow-y-auto overflow-x-hidden pr-1 thin-scrollbar space-y-0.5">
         {flatList.map((f) => {
           const isSel = f.path === selectedFolder;
@@ -132,6 +115,7 @@ export function FolderExplorer({
                 onOpenChange={(o) => !o && setConfirmResetFor(null)}
                 title="Reset folder?"
                 description={`This clears the in-app index and thumbnails for "${f.name}". Your files on disk stay intact.`}
+                tone="danger"
               >
                 <AlertCancel onClick={() => setConfirmResetFor(null)}>Cancel</AlertCancel>
                 <AlertAction

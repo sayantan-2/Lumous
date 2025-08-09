@@ -226,14 +226,14 @@ function App() {
   const handleFolderSelect = async (folderPath: string) => {
     try {
       console.log("Selecting folder:", folderPath);
-      
+
       // Clear search query
       setSearchQuery("");
-      
+
       // Set new folder immediately to show it in UI
       setSelectedFolder(folderPath);
   invoke("update_last_selected_folder", { folder: folderPath }).catch(() => {});
-      
+
       // Check if folder is already indexed
       const isAlreadyIndexed = await invoke("is_folder_indexed", { folderPath: folderPath });
       if (!isAlreadyIndexed) {
@@ -243,7 +243,7 @@ function App() {
           console.error("Indexing failed to start", e);
         });
       }
-      
+
     } catch (error) {
       console.error("Failed to process folder:", error);
       setIsIndexing(false);
