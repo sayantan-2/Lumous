@@ -1,36 +1,45 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use std::path::Path;
-use image::ImageFormat;
 use sha2::{Digest, Sha256};
+use image::codecs::jpeg::JpegEncoder;
 
 pub async fn generate_thumbnail(file_path: &str, size: u32) -> Result<String> {
-    let source = Path::new(file_path);
+    let file_path = file_path.to_string();
+    let res = tokio::task::spawn_blocking(move || {
+        let source = Path::new(&file_path);
 
-    // Create thumbnails directory if it doesn't exist
-    let thumbnails_dir = get_thumbnails_dir()?;
-    std::fs::create_dir_all(&thumbnails_dir)?;
+        // Create thumbnails directory if it doesn't exist
+        let thumbnails_dir = get_thumbnails_dir()?;
+        std::fs::create_dir_all(&thumbnails_dir)?;
 
-    // Generate thumbnail filename based on full path hash + size to avoid collisions
-    let mut hasher = Sha256::new();
-    hasher.update(file_path.as_bytes());
-    let hash = hasher.finalize();
-    let short = &hex::encode(hash)[..16];
-    let thumbnail_filename = format!("{}_{}.jpg", short, size);
-    let thumbnail_path = thumbnails_dir.join(thumbnail_filename);
+        // Generate thumbnail filename based on full path hash + size to avoid collisions
+        let mut hasher = Sha256::new();
+        hasher.update(file_path.as_bytes());
+        let hash = hasher.finalize();
+        let short = &hex::encode(hash)[..16];
+        let thumbnail_filename = format!("{}_{}.jpg", short, size);
+        let thumbnail_path = thumbnails_dir.join(thumbnail_filename);
 
-    // Check if thumbnail already exists
-    if thumbnail_path.exists() {
-        return Ok(thumbnail_path.to_string_lossy().to_string());
-    }
+        // Check if thumbnail already exists
+        if thumbnail_path.exists() {
+            return Ok(thumbnail_path.to_string_lossy().to_string());
+        }
 
-    // Load and resize image
-    let img = image::open(source)?;
-    let thumbnail = img.thumbnail(size, size);
+        // Load and resize image
+        let img = image::open(source)?;
+        let thumbnail = img.thumbnail(size, size);
 
-    // Save thumbnail as JPEG
-    thumbnail.save_with_format(&thumbnail_path, ImageFormat::Jpeg)?;
+        // Save thumbnail as JPEG with tuned quality for speed/size tradeoff
+        let mut out = std::fs::File::create(&thumbnail_path)?;
+        let mut encoder = JpegEncoder::new_with_quality(&mut out, 70);
+        encoder.encode_image(&thumbnail)?;
 
-    Ok(thumbnail_path.to_string_lossy().to_string())
+        Ok::<String, anyhow::Error>(thumbnail_path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| anyhow!("Join error generating thumbnail: {}", e))??;
+
+    Ok(res)
 }
 
 pub fn get_thumbnails_dir() -> Result<std::path::PathBuf> {

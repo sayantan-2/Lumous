@@ -45,6 +45,10 @@ struct SimpleDB {
     last_selected_folder: Option<String>,
     #[serde(default)]
     path_index: HashMap<String, String>, // normalized path -> file_id
+    #[serde(default)]
+    snapshots: HashMap<String, FolderSnapshot>, // normalized folder -> snapshot
+    #[serde(default)]
+    fingerprints: HashMap<String, String>, // normalized file path -> fingerprint (size:modified)
 }
 
 impl SimpleDB {
@@ -55,6 +59,8 @@ impl SimpleDB {
             albums: HashMap::new(),
             last_selected_folder: None,
             path_index: HashMap::new(),
+            snapshots: HashMap::new(),
+            fingerprints: HashMap::new(),
         }
     }
 
@@ -65,6 +71,11 @@ impl SimpleDB {
             let mut newf = file;
             newf.id = existing.clone();
             self.files.insert(existing.clone(), newf);
+            // Update fingerprint for this path
+            if let Some(fm) = self.files.get(existing) {
+                let fp = format!("{}:{}", fm.size, rfc3339_secs(&fm.modified));
+                self.fingerprints.insert(norm, fp);
+            }
             return;
         }
         let file_id = file.id.clone();
@@ -72,7 +83,13 @@ impl SimpleDB {
         self.folders.entry(folder_path.to_string())
             .or_insert_with(Vec::new)
             .push(file_id.clone());
-        self.path_index.insert(norm, file_id);
+    self.path_index.insert(norm, file_id.clone());
+        // New fingerprint record
+    if let Some(fm) = self.files.get(&file_id) {
+            let pnorm = normalize_path(&fm.path);
+            let fp = format!("{}:{}", fm.size, rfc3339_secs(&fm.modified));
+            self.fingerprints.insert(pnorm, fp);
+        }
     }
 
     fn remove_file_from_folder(&mut self, folder_path: &str, file_id: &str) -> Option<FileMeta> {
@@ -85,6 +102,7 @@ impl SimpleDB {
         if let Some(ref fm) = removed {
             let norm = normalize_path(&fm.path);
             self.path_index.remove(&norm);
+            self.fingerprints.remove(&norm);
         }
         removed
     }
@@ -146,6 +164,7 @@ impl SimpleDB {
                 if let Some(file) = self.files.remove(&file_id) {
                     let norm = normalize_path(&file.path);
                     self.path_index.remove(&norm);
+                    self.fingerprints.remove(&norm);
                 } else {
                     // Fallback: purge any path_index entries pointing to this id
                     let to_remove: Vec<String> = self
@@ -155,16 +174,20 @@ impl SimpleDB {
                         .collect();
                     for k in to_remove {
                         self.path_index.remove(&k);
+                        self.fingerprints.remove(&k);
                     }
                 }
             }
         }
+    self.snapshots.remove(folder_path);
     }
 
     fn clear(&mut self) {
         self.files.clear();
         self.folders.clear();
         self.albums.clear();
+    self.snapshots.clear();
+    self.fingerprints.clear();
     }
 
     fn get_indexed_folders(&self) -> Vec<String> {
@@ -174,6 +197,12 @@ impl SimpleDB {
         v
     }
 }
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct FolderSnapshot {
+    pub file_count: usize,
+    pub agg_mtime: i64,
+}
+
 
 // Simple natural compare (avoid extra dependency): compares runs of digits numerically
 fn natural_like(a: &str, b: &str) -> std::cmp::Ordering {
@@ -209,6 +238,13 @@ fn normalize_path(p: &str) -> String {
         .and_then(|pb| pb.to_str().map(|s| s.to_string()))
         .unwrap_or_else(|| p.to_string());
     if cfg!(windows) { canon.to_lowercase() } else { canon }
+}
+
+fn rfc3339_secs(s: &str) -> i64 {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .ok()
+        .map(|dt| dt.timestamp())
+        .unwrap_or(0)
 }
 
 static DB: Lazy<Mutex<SimpleDB>> = Lazy::new(|| {
@@ -373,6 +409,39 @@ pub async fn index_folder_streaming(
     
     // Incremental: no clearing; diffs current folder state vs scanned
 
+    // Snapshot-based short-circuit: compute quick folder snapshot and compare to last
+    app_handle.emit("indexing-progress", "Checking folder snapshot...").ok();
+    let current_snapshot = crate::indexer::compute_folder_snapshot(path)
+        .await
+        .map_err(|e| e.to_string())?;
+    let last_snapshot = {
+        let db = DB.lock().map_err(|e| e.to_string())?;
+        db.snapshots.get(&norm_root).cloned()
+    };
+    if let Some(last) = last_snapshot.as_ref() {
+        if last.file_count == current_snapshot.file_count && last.agg_mtime == current_snapshot.agg_mtime {
+            // No changes at all; finish early
+            #[derive(Serialize)]
+            struct IndexSummary<'a> {
+                root: &'a str,
+                total: usize,
+                upserted: usize,
+                deleted: usize,
+                unchanged: usize,
+            }
+            let summary = IndexSummary {
+                root: &norm_root,
+                total: current_snapshot.file_count,
+                upserted: 0,
+                deleted: 0,
+                unchanged: current_snapshot.file_count,
+            };
+            app_handle.emit("indexing-completed-summary", &summary).ok();
+            app_handle.emit("indexing-completed", &norm_root).ok();
+            return Ok(IndexResult { total_files: summary.total, indexed_files: 0, skipped_files: 0, errors: vec![] });
+        }
+    }
+
     // Emit scanning started
     app_handle.emit("indexing-progress", "Scanning for image files...").ok();
 
@@ -384,90 +453,111 @@ pub async fn index_folder_streaming(
     println!("Scanned {} files (shallow), starting to diff...", shallow.len());
     app_handle.emit("indexing-progress", format!("Found {} images, diffing...", shallow.len())).ok();
 
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
+    // Fast, allocation-based lowercase normalization (avoid canonicalize in hot loop)
+    let norm_lc = |s: &str| s.to_lowercase();
     // Build shallow map keyed by normalized path
-    let mut shallow_map: HashMap<String, (String, i64, String)> = HashMap::new(); // norm_path -> (name, size, modified)
+    let mut shallow_map: HashMap<String, (String, i64, i64)> = HashMap::new(); // norm_path -> (name, size, modified_sec)
     for s in &shallow {
-        shallow_map.insert(normalize_path(&s.path), (s.name.clone(), s.size, s.modified.clone()));
+        shallow_map.insert(norm_lc(&s.path), (s.name.clone(), s.size, s.modified_sec));
     }
 
-    // Snapshot existing IDs and paths for this folder
-    let (existing_ids, existing_paths): (Vec<String>, HashSet<String>) = {
+    // Snapshot existing IDs and fingerprints for this folder (single lock)
+    let (existing_ids, existing_fp_by_path): (Vec<String>, HashMap<String, String>) = {
         let db = DB.lock().map_err(|e| e.to_string())?;
         let ids = db.folders.get(&norm_root).cloned().unwrap_or_default();
-        let mut paths = HashSet::new();
+        let mut fps = HashMap::new();
         for id in &ids {
             if let Some(fm) = db.files.get(id) {
-                paths.insert(normalize_path(&fm.path));
+                let pnorm = norm_lc(&fm.path);
+                let fp = db
+                    .fingerprints
+                    .get(&pnorm)
+                    .cloned()
+                    .unwrap_or_else(|| format!("{}:{}", fm.size, rfc3339_secs(&fm.modified)));
+                fps.insert(pnorm, fp);
             }
         }
-        (ids, paths)
+        (ids, fps)
     };
 
-    // Deletions: in DB but not in scanned
+    // Deletions: in DB but not in scanned (batch under single lock)
     let mut deleted_count = 0usize;
-    for id in existing_ids {
+    let mut to_delete: Vec<String> = Vec::new();
+    for id in &existing_ids {
         let maybe_path = {
             let db = DB.lock().map_err(|e| e.to_string())?;
-            db.files.get(&id).map(|fm| normalize_path(&fm.path))
+            db.files.get(id).map(|fm| norm_lc(&fm.path))
         };
         if let Some(p) = maybe_path {
-            if !shallow_map.contains_key(&p) {
-                let removed = {
-                    let mut db = DB.lock().map_err(|e| e.to_string())?;
-                    db.remove_file_from_folder(&norm_root, &id)
-                };
-                if let Some(fm) = removed { remove_thumbnails_for_paths(&[fm.path.clone()], 300); }
-                deleted_count += 1;
-                app_handle.emit("indexing-progress", format!("Removed missing file(s): {}", deleted_count)).ok();
-            }
+            if !shallow_map.contains_key(&p) { to_delete.push(id.clone()); }
         }
     }
+    if !to_delete.is_empty() {
+        let mut removed_paths: Vec<String> = Vec::with_capacity(to_delete.len());
+        {
+            let mut db = DB.lock().map_err(|e| e.to_string())?;
+            for id in to_delete {
+                if let Some(fm) = db.remove_file_from_folder(&norm_root, &id) {
+                    removed_paths.push(fm.path);
+                }
+                deleted_count += 1;
+            }
+        }
+        if !removed_paths.is_empty() { remove_thumbnails_for_paths(&removed_paths, 300); }
+        app_handle.emit("indexing-progress", format!("Removed missing file(s): {}", deleted_count)).ok();
+    }
 
-    // Additions/Updates: Only upsert if new or changed (size or modified timestamp)
+    // Additions/Updates with hybrid emission
     let mut upserted = 0usize;
     let mut processed = 0usize;
-    for (norm_path, (_name, size, modified)) in shallow_map.into_iter() {
+    let mut batch: Vec<FileMeta> = Vec::new();
+    const BATCH_SIZE: usize = 12;
+    let mut singles_left: usize = 32; // show first 32 instantly for perceived speed
+    let mut last_batch_emit = std::time::Instant::now();
+    let batch_emit_interval = std::time::Duration::from_millis(120);
+    for (norm_path, (_name, size, modified_sec)) in shallow_map.into_iter() {
         processed += 1;
-        // Check existing record
-        let mut needs_update = false;
-        let maybe_existing: Option<FileMeta> = {
-            let db = DB.lock().map_err(|e| e.to_string())?;
-            if let Some(file_id) = db.path_index.get(&norm_path) {
-                db.files.get(file_id).cloned()
-            } else { None }
+        let new_fp = format!("{}:{}", size, modified_sec);
+        let needs_update = match existing_fp_by_path.get(&norm_path) {
+            Some(fp) => fp != &new_fp,
+            None => true,
         };
-
-        match maybe_existing {
-            Some(existing) => {
-                // Compare size and modified; if unchanged, skip heavy work
-                if existing.size != size || existing.modified != modified {
-                    needs_update = true;
-                }
-            }
-            None => { needs_update = true; }
-        }
-
         if needs_update {
-            // Build full FileMeta by processing the file; generate thumbnail if missing
             let file_path = norm_path.clone();
-            if let Some(meta) = process_file(Path::new(&file_path)).await.map_err(|e| e.to_string())? {
-                let mut fm = meta;
-                if fm.thumbnail_path.is_none() { if let Ok(thumb) = generate_thumbnail(&fm.path, 300).await { fm.thumbnail_path = Some(thumb); } }
+            if let Some(mut fm) = process_file(Path::new(&file_path)).await.map_err(|e| e.to_string())? {
+                if fm.thumbnail_path.is_none() {
+                    if let Ok(thumb) = generate_thumbnail(&fm.path, 300).await {
+                        fm.thumbnail_path = Some(thumb);
+                    }
+                }
                 {
                     let mut db = DB.lock().map_err(|e| e.to_string())?;
                     db.add_file(fm.clone(), &norm_root);
                 }
                 upserted += 1;
-                app_handle.emit("file-indexed", &fm).ok();
+                if singles_left > 0 {
+                    app_handle.emit("file-indexed", &fm).ok();
+                    singles_left -= 1;
+                } else {
+                    batch.push(fm);
+                    let elapsed = last_batch_emit.elapsed();
+                    if batch.len() >= BATCH_SIZE || elapsed >= batch_emit_interval {
+                        app_handle.emit("files-indexed-batch", &batch).ok();
+                        batch.clear();
+                        last_batch_emit = std::time::Instant::now();
+                    }
+                }
             }
         }
-
-        if processed % 25 == 0 { app_handle.emit("indexing-progress", format!("Checked {} files...", processed)).ok(); }
+        if processed % 50 == 0 { app_handle.emit("indexing-progress", format!("Checked {} files...", processed)).ok(); }
     }
+    if !batch.is_empty() { app_handle.emit("files-indexed-batch", &batch).ok(); }
     {
         let mut db = DB.lock().map_err(|e| e.to_string())?;
         db.last_selected_folder = Some(norm_root.clone());
+        // Update snapshot for this folder
+        db.snapshots.insert(norm_root.clone(), FolderSnapshot { file_count: current_snapshot.file_count, agg_mtime: current_snapshot.agg_mtime });
         save_persisted_db(&db);
     }
 
@@ -617,6 +707,8 @@ pub async fn reset_library() -> Result<(), String> {
         db.albums.clear();
         db.last_selected_folder = None;
         db.path_index.clear();
+    db.snapshots.clear();
+    db.fingerprints.clear();
         save_persisted_db(&db);
     }
     // Also clear thumbnails cache directory

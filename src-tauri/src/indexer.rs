@@ -2,7 +2,6 @@ use crate::models::{FileMeta, Dimensions};
 use std::path::Path;
 use std::fs;
 use walkdir::WalkDir;
-use image::ImageReader;
 use uuid::Uuid;
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
@@ -32,8 +31,8 @@ pub struct ShallowMeta {
     pub path: String,
     pub name: String,
     pub size: i64,
-    pub modified: String,
-    pub created: String,
+    pub modified_sec: i64,
+    pub created_sec: i64,
     pub ext: String,
 }
 
@@ -63,28 +62,27 @@ pub async fn scan_directory_shallow(root: &Path, _recursive: bool) -> Result<Vec
                 .unwrap_or("unknown")
                 .to_string();
 
-            let modified = metadata
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let modified_sec: i64 = metadata
                 .modified()
-                .map(|time| {
-                    let datetime: chrono::DateTime<chrono::Utc> = time.into();
-                    datetime.to_rfc3339()
-                })
-                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
 
-            let created = metadata
+            let created_sec: i64 = metadata
                 .created()
-                .map(|time| {
-                    let datetime: chrono::DateTime<chrono::Utc> = time.into();
-                    datetime.to_rfc3339()
-                })
-                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
 
             files.push(ShallowMeta {
                 path: path.to_string_lossy().to_string(),
                 name: file_name,
                 size: metadata.len() as i64,
-                modified,
-                created,
+                modified_sec,
+                created_sec,
                 ext: extension,
             });
         }
@@ -146,4 +144,13 @@ pub async fn process_file(path: &Path) -> Result<Option<FileMeta>, Box<dyn std::
         rating: None,
         metadata: None, // TODO: Extract EXIF data
     }))
+}
+
+/// Compute a quick snapshot for a folder: total eligible files and aggregated mtime.
+pub async fn compute_folder_snapshot(root: &Path) -> Result<crate::commands::FolderSnapshot, Box<dyn std::error::Error + Send + Sync>> {
+    let shallow = scan_directory_shallow(root, false).await?;
+    // Aggregate mtime as a simple sum of UNIX seconds to detect changes across the set
+    let mut agg: i64 = 0;
+    for s in &shallow { agg = agg.wrapping_add(s.modified_sec); }
+    Ok(crate::commands::FolderSnapshot { file_count: shallow.len(), agg_mtime: agg })
 }

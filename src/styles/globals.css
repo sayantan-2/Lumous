@@ -96,6 +96,20 @@
   transition: transform 0.2s ease-in-out;
 }
 
+/* Predefined thumbnail min sizes to avoid inline styles */
+.thumb-min-150 { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.thumb-min-180 { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.thumb-min-200 { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.thumb-min-220 { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.thumb-min-240 { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+
+/* Fixed square sizes for virtualized grid cells */
+.thumb-150 { width: 150px; height: 150px; }
+.thumb-180 { width: 180px; height: 180px; }
+.thumb-200 { width: 200px; height: 200px; }
+.thumb-220 { width: 220px; height: 220px; }
+.thumb-240 { width: 240px; height: 240px; }
+
 .image-thumbnail:hover {
   transform: scale(1.05);
 }

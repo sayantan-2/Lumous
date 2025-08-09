@@ -104,12 +104,53 @@ function App() {
         }
       });
 
+      // Batched file-indexed event to reduce churn
+      const batchUnlisten = await listen('files-indexed-batch', (event) => {
+        const batch = event.payload as FileMeta[];
+        if (!Array.isArray(batch) || batch.length === 0) return;
+        if (selectedFolder) {
+          const folderLc = selectedFolder.toLowerCase();
+          const forThisFolder = batch.filter(f => f.path.toLowerCase().startsWith(folderLc));
+          if (forThisFolder.length === 0) return;
+          queryClient.setQueryData(["files", selectedFolder], (oldData: FileMeta[] | undefined) => {
+            const norm = (p: string) => p.toLowerCase();
+            const map = new Map<string, FileMeta>();
+            if (oldData) {
+              for (const f of oldData) map.set(norm(f.path), f);
+            }
+            for (const f of forThisFolder) map.set(norm(f.path), f);
+            return Array.from(map.values());
+          });
+        }
+      });
+
+      // Optional: handle file-updated for late thumbnail availability
+      const updatedUnlisten = await listen('file-updated', (event) => {
+        const updated = event.payload as FileMeta;
+        if (!updated) return;
+        if (selectedFolder) {
+          const folderLc = selectedFolder.toLowerCase();
+          if (!updated.path.toLowerCase().startsWith(folderLc)) return;
+          queryClient.setQueryData(["files", selectedFolder], (oldData: FileMeta[] | undefined) => {
+            if (!oldData) return [updated];
+            const norm = (p: string) => p.toLowerCase();
+            const idx = oldData.findIndex(f => norm(f.path) === norm(updated.path));
+            if (idx === -1) return [...oldData, updated];
+            const copy = oldData.slice();
+            copy[idx] = updated;
+            return copy;
+          });
+        }
+      });
+
       return () => {
         progressUnlisten();
         startedUnlisten();
         completedUnlisten();
         completedSummaryUnlisten();
-        fileIndexedUnlisten();
+  fileIndexedUnlisten();
+  batchUnlisten();
+  updatedUnlisten();
       };
     };
 

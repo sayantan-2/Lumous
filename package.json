@@ -6,6 +6,10 @@
   "description": "A lightning-fast, native desktop photo gallery",
   "author": "Local Gallery Contributors",
   "license": "MIT",
+  "packageManager": "bun@1.2.19",
+  "engines": {
+    "bun": ">=1.2.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

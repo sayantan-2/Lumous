@@ -1,10 +1,11 @@
 /* eslint-disable */
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 /* eslint-disable */
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { FileMeta } from "../types";
 import { cn } from "../lib/utils";
 import { ImageViewer } from "./ImageViewer";
+import { FixedSizeGrid as Grid, GridChildComponentProps } from "react-window";
 
 interface FileGridProps {
   files: FileMeta[];
@@ -14,9 +15,8 @@ interface FileGridProps {
   isSidebarSlim: boolean; // kept (future styling) but no longer used for width calc
 }
 
-// NOTE: Virtualization removed in favor of pure CSS grid for perfect edge alignment.
-// If performance becomes an issue with very large libraries, we can reintroduce virtualization
-// using a custom outer/inner element pairing once layout math is fully locked in.
+// NOTE: Virtualization enabled via react-window FixedSizeGrid for performance with large libraries.
+// We keep layout math simple (square cells) for predictable virtualization.
 
 export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: FileGridProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
@@ -39,9 +39,69 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
 
   const handleCloseViewer = () => {
     setSelectedImageIndex(null);
-  }; if (isLoading) {
-    const isIndexing = loadingMessage && loadingMessage.includes("indexing");
+  };
 
+  // Virtualized grid math
+  const gap = 12; // Tailwind gap-3
+  const padding = 12; // Tailwind p-3
+  const columnWidth = thumbnailSize; // content square
+  const rowHeight = thumbnailSize; // content square
+  const viewportWidth = Math.max(0, containerSize.width - padding * 2);
+  const cols = useMemo(() => {
+    if (viewportWidth <= 0) return 1;
+    // effective column slot includes cell size + gap; last column doesn't need trailing gap
+    const slot = columnWidth + gap;
+    const count = Math.max(1, Math.floor((viewportWidth + gap) / slot));
+    return count;
+  }, [viewportWidth, columnWidth]);
+  const rowCount = useMemo(() => Math.ceil(files.length / cols), [files.length, cols]);
+
+  const sizeClass = useMemo(() => {
+    if (thumbnailSize <= 160) return "thumb-150";
+    if (thumbnailSize <= 190) return "thumb-180";
+    if (thumbnailSize <= 210) return "thumb-200";
+    if (thumbnailSize <= 230) return "thumb-220";
+    return "thumb-240";
+  }, [thumbnailSize]);
+
+  const cellRenderer = useCallback(({ columnIndex, rowIndex, style }: GridChildComponentProps) => {
+    const index = rowIndex * cols + columnIndex;
+    if (index >= files.length) {
+      return <div style={style} />;
+    }
+    const file = files[index];
+    const fileName = file.path.split(/[\\/]/).pop() || file.path;
+    const displayPath = file.thumbnail_path || file.path;
+    return (
+      <div style={style} className="p-1">
+        <div
+          className="group cursor-pointer select-none"
+          onClick={() => handleImageClick(index)}
+        >
+          <div className={cn("relative rounded-lg overflow-hidden bg-muted hover:shadow-lg transition-shadow", sizeClass)}>
+            <img
+              src={convertFileSrc(displayPath)}
+              alt={fileName}
+              className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
+              onError={(e) => {
+                console.error('Failed to load image:', displayPath);
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <span className="text-white text-xs font-medium">View</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }, [files, cols, columnWidth, rowHeight]);
+
+  // Early returns (after hooks to keep order stable across renders)
+  if (isLoading) {
+    const isIndexing = loadingMessage && loadingMessage.includes("indexing");
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-center max-w-md">
@@ -82,47 +142,20 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
 
   return (
     <div ref={containerRef} className="h-full w-full overflow-hidden min-h-0">
-      <div
-        className={cn(
-          "h-full w-full overflow-auto",
-          "[scrollbar-gutter:stable]", // avoid horizontal shifts
-          "pr-3" // intentional right gap
-        )}
+      <div className={cn("h-full w-full overflow-auto", "[scrollbar-gutter:stable]", "p-3")}
       >
-        <div
-          className={cn(
-            "grid gap-3 p-3",
-            "grid-cols-[repeat(auto-fill,minmax(var(--thumb-size),1fr))]"
-          )}
-          style={{
-            // Use CSS var for min size; ensures consistent column baseline
-            ['--thumb-size' as any]: `${thumbnailSize}px`
-          }}
+        <Grid
+          columnCount={cols}
+          rowCount={rowCount}
+          columnWidth={columnWidth + gap}
+          rowHeight={rowHeight + gap}
+          height={Math.max(100, containerSize.height - padding * 2)}
+          width={Math.max(100, containerSize.width - padding * 2)}
+          overscanRowCount={4}
+          overscanColumnCount={2}
         >
-          {files.map((file, index) => {
-            const fileName = file.path.split(/[/\\\\]/).pop() || file.path;
-            const displayPath = file.thumbnail_path || file.path;
-            return (
-              <div key={file.id || file.path} className="group cursor-pointer select-none" onClick={() => handleImageClick(index)}>
-                <div className="relative rounded-lg overflow-hidden bg-muted aspect-square hover:shadow-lg transition-shadow">
-                  <img
-                    src={convertFileSrc(displayPath)}
-                    alt={fileName}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    onError={(e) => {
-                      console.error('Failed to load image:', displayPath);
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                    <span className="text-white text-xs font-medium">View</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {cellRenderer}
+        </Grid>
       </div>
       {selectedImageIndex !== null && (
         <ImageViewer
