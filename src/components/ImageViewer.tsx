@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { convertFileSrc } from '@tauri-apps/api/core';
-import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw } from "lucide-react";
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, RotateCw, Copy } from "lucide-react";
 import { Button } from "./ui/Button";
+import { AppToast } from "./ui/Toast";
 import type { FileMeta } from "../types";
 import { cn } from "../lib/utils";
 
@@ -21,6 +22,8 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [showControls, setShowControls] = useState(true);
+  const [caption, setCaption] = useState<string | null>(null);
+  const [copiedOpen, setCopiedOpen] = useState(false);
   const currentFile = files[currentIndex];
 
   useEffect(() => {
@@ -71,6 +74,14 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   useEffect(() => {
     resetTransforms();
     setShowControls(true);
+    // Load sidecar caption for the current image
+    if (currentFile?.path) {
+      invoke<string | null>("get_sidecar_caption", { imagePath: currentFile.path })
+        .then((text) => setCaption(text ?? null))
+        .catch(() => setCaption(null));
+    } else {
+      setCaption(null);
+    }
   }, [currentIndex]);
 
   // Mouse event handlers
@@ -165,7 +176,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </div>
       </div>
 
-      {/* Navigation */}
+      {/* Navigation (global, at extreme edges) */}
       <Button
         variant="ghost"
         size="lg"
@@ -241,13 +252,17 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </div>
       </div>
 
-      {/* Image */}
-      <div className="flex-1 flex items-center justify-center p-8 overflow-hidden">
-        <img
+      {/* Content: image + caption panel (reserve space for right arrow with padding) */}
+  <div className="flex-1 flex items-stretch justify-center gap-0 p-8 pr-16 overflow-hidden">
+        <div className={cn("relative inline-flex items-center justify-center overflow-visible shrink-0")}>
+          <img
           src={convertFileSrc(currentFile.path)}
           alt={fileName}
           className={cn(
-            "max-w-[calc(100vw-4rem)] max-h-[calc(100vh-12rem)] object-contain transition-transform duration-200",
+            caption
+              ? "max-w-[65vw] max-h-[calc(100vh-12rem)]"
+              : "max-w-[calc(100vw-4rem)] max-h-[calc(100vh-12rem)]",
+            "object-contain transition-transform duration-200",
             zoom > 1 ? "cursor-grab" : "cursor-pointer",
             isDragging && "cursor-grabbing"
           )}
@@ -262,8 +277,32 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
             console.error('Failed to load image:', currentFile.path);
           }}
           draggable={false}
-        />
+          />
+          {caption && (
+            <aside className="absolute top-1/2 left-full -translate-y-1/2 ml-1 w-[clamp(16rem,26vw,20rem)] max-h-[calc(100vh-12rem)] rounded-md border border-white/10 bg-black/30 backdrop-blur-sm text-white/90 p-3 overflow-auto shadow-lg shadow-black/40">
+              <div className="flex items-center justify-between mb-1.5">
+                <h3 className="text-xs uppercase tracking-wide text-white/60">Caption</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-white/80 hover:bg-white/20"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(caption).then(() => setCopiedOpen(true)).catch(() => setCopiedOpen(true));
+                  }}
+                  title="Copy caption"
+                >
+                  <Copy className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="text-sm leading-relaxed whitespace-pre-wrap break-words [text-wrap:pretty]">
+                {caption}
+              </div>
+            </aside>
+          )}
+        </div>
       </div>
+  {/* Local toast for copy confirmation */}
+  <AppToast title="Copied!" open={copiedOpen} onOpenChange={setCopiedOpen} />
     </div>
   );
 }

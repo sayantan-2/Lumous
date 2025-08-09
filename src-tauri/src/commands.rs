@@ -764,3 +764,31 @@ pub async fn reset_folder(folder_path: String) -> Result<(), String> {
     println!("Reset folder requested but not found: {}", folder_path);
     Ok(())
 }
+
+// ------------------------------
+// Sidecar captions
+// ------------------------------
+
+#[tauri::command]
+pub async fn get_sidecar_caption(image_path: String) -> Result<Option<String>, String> {
+    let p = std::path::Path::new(&image_path);
+    let parent = match p.parent() { Some(d) => d, None => return Ok(None) };
+    let stem_os = match p.file_stem() { Some(s) => s, None => return Ok(None) };
+    let stem = stem_os.to_string_lossy();
+    let candidates = [
+        format!("{}.txt", stem),
+        format!("{}.caption.txt", stem),
+        format!("{}.md", stem),
+    ];
+
+    for name in &candidates {
+        let candidate = parent.join(name);
+        if candidate.is_file() {
+            match fs::read_to_string(&candidate) {
+                Ok(text) => return Ok(Some(text)),
+                Err(e) => return Err(format!("Failed reading caption: {}", e)),
+            }
+        }
+    }
+    Ok(None)
+}

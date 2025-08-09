@@ -42,6 +42,7 @@ pub fn run() {
       update_last_selected_folder,
       reset_library,
       reset_folder
+  ,get_sidecar_caption
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
