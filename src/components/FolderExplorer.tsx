@@ -52,8 +52,8 @@ export function FolderExplorer({
     );
 
   return (
-  <div className="flex flex-col gap-2">
-      <div className="max-h-72 overflow-y-auto overflow-x-hidden pr-1 thin-scrollbar space-y-0.5">
+  <div className="flex flex-col gap-2 min-h-0">
+      <div className="overflow-x-hidden pr-1 thin-scrollbar space-y-0.5">
         {flatList.map((f) => {
           const isSel = f.path === selectedFolder;
           return (
