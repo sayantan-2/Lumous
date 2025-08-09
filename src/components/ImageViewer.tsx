@@ -302,7 +302,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </div>
       </div>
   {/* Local toast for copy confirmation */}
-  <AppToast title="Copied!" open={copiedOpen} onOpenChange={setCopiedOpen} />
+  <AppToast title="Copied!" description="Caption copied to clipboard" variant="success" duration={1800} open={copiedOpen} onOpenChange={setCopiedOpen} />
     </div>
   );
 }

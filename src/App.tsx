@@ -24,6 +24,7 @@ function App() {
   const [toastOpen, setToastOpen] = useState(false);
   const [toastTitle, setToastTitle] = useState("");
   const [toastDesc, setToastDesc] = useState<string | undefined>(undefined);
+  const [toastVariant, setToastVariant] = useState<"default"|"success"|"error"|"warning"|"info">("default");
   // UI control: images per row (null -> auto by size). Persist locally only.
   const [imagesPerRow, setImagesPerRow] = useState<number | null>(() => {
     const raw = localStorage.getItem("lg.imagesPerRow");
@@ -76,6 +77,10 @@ function App() {
       const startedUnlisten = await listen('indexing-started', (event) => {
         setIsIndexing(true);
         setIndexingProgress('Starting indexing...');
+        setToastTitle("Sync started");
+        setToastDesc(undefined);
+        setToastVariant("info");
+        setToastOpen(true);
       });
 
       // Listen for indexing completed (compat)
@@ -87,9 +92,10 @@ function App() {
         if (selectedFolder) {
           queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
         }
-        setToastTitle("Sync complete");
-        setToastDesc(undefined);
-        setToastOpen(true);
+  setToastTitle("Sync complete");
+  setToastDesc(undefined);
+  setToastVariant("success");
+  setToastOpen(true);
       });
 
       // New summary event with change counts
@@ -104,9 +110,10 @@ function App() {
             queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
           }
         }
-        setToastTitle("Sync complete");
-        setToastDesc(`${payload.upserted} updated • ${payload.deleted} removed`);
-        setToastOpen(true);
+  setToastTitle("Sync complete");
+  setToastDesc(`${payload.upserted} updated • ${payload.deleted} removed`);
+  setToastVariant("success");
+  setToastOpen(true);
       });
 
       // Listen for individual file indexed (for real-time updates)
@@ -289,7 +296,10 @@ function App() {
       console.error("Failed to process folder:", error);
       setIsIndexing(false);
       setIndexingProgress("");
-      alert(`Failed to process folder: ${error}`);
+      setToastTitle("Folder error");
+      setToastDesc(String(error));
+      setToastVariant("error");
+      setToastOpen(true);
     }
   };
 
@@ -358,7 +368,7 @@ function App() {
         </main>
       </div>
   </div>
-  <AppToast title={toastTitle} description={toastDesc} open={toastOpen} onOpenChange={setToastOpen} />
+  <AppToast title={toastTitle} description={toastDesc} variant={toastVariant} open={toastOpen} onOpenChange={setToastOpen} />
   </ToastProvider>
   );
 }
