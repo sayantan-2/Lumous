@@ -279,7 +279,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           draggable={false}
           />
           {caption && (
-            <aside className="absolute top-1/2 left-full -translate-y-1/2 ml-1 w-[clamp(16rem,26vw,20rem)] max-h-[calc(100vh-12rem)] rounded-md border border-white/10 bg-black/30 backdrop-blur-sm text-white/90 p-3 overflow-auto shadow-lg shadow-black/40">
+            <aside className="absolute top-0 left-full ml-2 w-[clamp(16rem,26vw,20rem)] max-h-[calc(100vh-12rem)] rounded-md border border-white/10 bg-black/30 backdrop-blur-sm text-white/90 p-3 overflow-auto shadow-lg shadow-black/40">
               <div className="flex items-center justify-between mb-1.5">
                 <h3 className="text-xs uppercase tracking-wide text-white/60">Caption</h3>
                 <Button
