@@ -8,6 +8,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { AppSettings, FileMeta } from "./types";
 import { naturalSortFiles } from "./lib/utils";
+import { ToastProvider, AppToast } from "./components/ui/Toast";
 
 function App() {
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -20,6 +21,9 @@ function App() {
   const [sortKey, setSortKey] = useState<'name'|'date'|'size'>('name');
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
   const queryClient = useQueryClient();
+  const [toastOpen, setToastOpen] = useState(false);
+  const [toastTitle, setToastTitle] = useState("");
+  const [toastDesc, setToastDesc] = useState<string | undefined>(undefined);
 
   // Restore full library state (last selected + included folders) once on mount
   useEffect(() => {
@@ -56,7 +60,7 @@ function App() {
         setIndexingProgress('Starting indexing...');
       });
 
-      // Listen for indexing completed
+      // Listen for indexing completed (compat)
       const completedUnlisten = await listen('indexing-completed', (event) => {
         setIsIndexing(false);
         setIndexingProgress('');
@@ -65,6 +69,26 @@ function App() {
         if (selectedFolder) {
           queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
         }
+        setToastTitle("Sync complete");
+        setToastDesc(undefined);
+        setToastOpen(true);
+      });
+
+      // New summary event with change counts
+      const completedSummaryUnlisten = await listen('indexing-completed-summary', (event) => {
+        setIsIndexing(false);
+        setIndexingProgress('');
+        const payload = event.payload as { root: string; total: number; upserted: number; deleted: number; unchanged: number };
+        // Only invalidate queries if there were changes
+        if ((payload.upserted ?? 0) > 0 || (payload.deleted ?? 0) > 0) {
+          queryClient.invalidateQueries({ queryKey: ["indexedFolders"] });
+          if (selectedFolder && payload.root && selectedFolder.toLowerCase() === payload.root.toLowerCase()) {
+            queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
+          }
+        }
+        setToastTitle("Sync complete");
+        setToastDesc(`${payload.upserted} updated • ${payload.deleted} removed`);
+        setToastOpen(true);
       });
 
       // Listen for individual file indexed (for real-time updates)
@@ -84,6 +108,7 @@ function App() {
         progressUnlisten();
         startedUnlisten();
         completedUnlisten();
+        completedSummaryUnlisten();
         fileIndexedUnlisten();
       };
     };
@@ -170,22 +195,13 @@ function App() {
       
       // Check if folder is already indexed
       const isAlreadyIndexed = await invoke("is_folder_indexed", { folderPath: folderPath });
-      
-      if (isAlreadyIndexed) {
-        console.log("Folder already indexed");
-        setIndexingProgress("Folder already indexed");
-        // Clear progress shortly after informing user
-        setTimeout(() => setIndexingProgress(""), 800);
-        return; // No need to re-index
+      if (!isAlreadyIndexed) {
+        // Fire-and-forget streaming indexing process; UI stays responsive
+        console.log("Starting streaming indexing (background)...");
+        invoke("index_folder_streaming", { root: folderPath, recursive: false }).catch((e)=>{
+          console.error("Indexing failed to start", e);
+        });
       }
-      
-      // Start streaming indexing process
-      console.log("Starting streaming indexing...");
-      const result = await invoke("index_folder_streaming", { 
-        root: folderPath, 
-        recursive: false // ignored (always non-recursive now)
-      });
-      console.log("Streaming indexing completed:", result);
       
     } catch (error) {
       console.error("Failed to process folder:", error);
@@ -209,7 +225,8 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen bg-background text-foreground">
+  <ToastProvider>
+  <div className="flex h-screen bg-background text-foreground">
       <Sidebar
         currentView={currentView}
         onViewChange={setCurrentView}
@@ -246,15 +263,17 @@ function App() {
           ) : (
             <FileGrid
               files={files}
-              isLoading={filesLoading || isIndexing}
+              isLoading={filesLoading}
               thumbnailSize={settings?.thumbnailSize || 200}
-              loadingMessage={indexingProgress || (filesLoading ? "Loading images..." : "")}
+              loadingMessage={filesLoading ? "Loading images..." : ""}
               isSidebarSlim={isSidebarSlim}
             />
           )}
         </main>
       </div>
-    </div>
+  </div>
+  <AppToast title={toastTitle} description={toastDesc} open={toastOpen} onOpenChange={setToastOpen} />
+  </ToastProvider>
   );
 }
 

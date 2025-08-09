@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Grid, Heart, Tags, Star, Plus, Settings, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "./ui/Button";
+import { AlertDialog, AlertAction, AlertCancel } from "./ui/AlertDialog";
 import { FolderExplorer } from "./FolderExplorer";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
@@ -68,9 +69,9 @@ export function Sidebar({
   const handleToggleSlim = () => onToggleSlim();
   const [showSettings, setShowSettings] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const handleReset = async () => {
-    if (!confirm("This will clear all indexed data (thumbnails & folder index). Your image files on disk remain untouched. Continue?")) return;
     try {
       setResetting(true);
       await invoke("reset_library");
@@ -91,7 +92,15 @@ export function Sidebar({
       {/* Sidebar Header */}
       <div className="p-3 border-b flex items-center gap-2 h-14">
         {!isSlim && (
-          <h2 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">Library</h2>
+          <>
+            <h2 className="font-semibold text-xs text-muted-foreground uppercase tracking-wider">Library</h2>
+            {isIndexing && (
+              <span className="ml-2 inline-flex items-center gap-1 rounded px-2 py-0.5 bg-primary/10 text-primary text-[10px]">
+                <span className="w-1.5 h-1.5 bg-primary rounded-full animate-pulse"></span>
+                Syncing…
+              </span>
+            )}
+          </>
         )}
         <Button
           variant="ghost"
@@ -167,10 +176,19 @@ export function Sidebar({
           {showSettings && !isSlim && (
             <div className="p-2 rounded border bg-muted/40 space-y-2">
               <div className="text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Maintenance</div>
-              <Button variant="ghost" disabled={resetting} onClick={handleReset} className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30" title="Clear in-app database (does not delete actual image files)">
+              <Button variant="ghost" disabled={resetting} onClick={() => setShowResetConfirm(true)} className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30" title="Clear in-app database (does not delete actual image files)">
                 <Trash2 className="w-4 h-4"/>
                 <span className="ml-2">{resetting?"Resetting...":"Reset Library"}</span>
               </Button>
+              <AlertDialog
+                open={showResetConfirm}
+                onOpenChange={(o) => !o && setShowResetConfirm(false)}
+                title="Reset entire library?"
+                description="This clears all indexed entries and thumbnails. Your original files on disk remain untouched."
+              >
+                <AlertCancel onClick={() => setShowResetConfirm(false)}>Cancel</AlertCancel>
+                <AlertAction tone="danger" onClick={handleReset}>Reset</AlertAction>
+              </AlertDialog>
               <p className="text-[10px] leading-relaxed text-muted-foreground">Removes indexed entries & thumbnails. Use if you see duplicate images.</p>
             </div>
           )}

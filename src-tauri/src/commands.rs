@@ -1,6 +1,6 @@
 use crate::models::*;
-use crate::indexer::scan_directory;
-use crate::thumbnail::generate_thumbnail;
+use crate::indexer::{scan_directory, scan_directory_shallow, process_file};
+use crate::thumbnail::{generate_thumbnail, remove_all_thumbnails, remove_thumbnails_for_paths};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::collections::HashMap;
@@ -61,8 +61,10 @@ impl SimpleDB {
     fn add_file(&mut self, file: FileMeta, folder_path: &str) {
         let norm = normalize_path(&file.path);
         if let Some(existing) = self.path_index.get(&norm) {
-            // Replace existing metadata (e.g., updated thumbnail)
-            self.files.insert(existing.clone(), file);
+            // Replace existing metadata while preserving the existing id used as the key
+            let mut newf = file;
+            newf.id = existing.clone();
+            self.files.insert(existing.clone(), newf);
             return;
         }
         let file_id = file.id.clone();
@@ -71,6 +73,20 @@ impl SimpleDB {
             .or_insert_with(Vec::new)
             .push(file_id.clone());
         self.path_index.insert(norm, file_id);
+    }
+
+    fn remove_file_from_folder(&mut self, folder_path: &str, file_id: &str) -> Option<FileMeta> {
+        if let Some(list) = self.folders.get_mut(folder_path) {
+            if let Some(pos) = list.iter().position(|id| id == file_id) {
+                list.remove(pos);
+            }
+        }
+        let removed = self.files.remove(file_id);
+        if let Some(ref fm) = removed {
+            let norm = normalize_path(&fm.path);
+            self.path_index.remove(&norm);
+        }
+        removed
     }
 
     fn get_files_for_folder(&self, folder_path: &str, offset: usize, limit: usize) -> Vec<FileMeta> {
@@ -126,7 +142,21 @@ impl SimpleDB {
     fn clear_folder(&mut self, folder_path: &str) {
         if let Some(file_ids) = self.folders.remove(folder_path) {
             for file_id in file_ids {
-                self.files.remove(&file_id);
+                // Remove file from files and corresponding path_index entry
+                if let Some(file) = self.files.remove(&file_id) {
+                    let norm = normalize_path(&file.path);
+                    self.path_index.remove(&norm);
+                } else {
+                    // Fallback: purge any path_index entries pointing to this id
+                    let to_remove: Vec<String> = self
+                        .path_index
+                        .iter()
+                        .filter_map(|(k, v)| if v == &file_id { Some(k.clone()) } else { None })
+                        .collect();
+                    for k in to_remove {
+                        self.path_index.remove(&k);
+                    }
+                }
             }
         }
     }
@@ -330,74 +360,140 @@ pub async fn index_folder_streaming(
     root: String,
     _recursive: bool,
 ) -> Result<IndexResult, String> {
-    let path = Path::new(&root);
+    let norm_root = normalize_path(&root);
+    let path = Path::new(&norm_root);
     if !path.exists() {
         return Err("Directory does not exist".to_string());
     }
 
-    println!("Starting streaming indexing of directory: {}", root);
+    println!("Starting streaming indexing of directory: {}", norm_root);
     
     // Emit indexing started event
-    app_handle.emit("indexing-started", &root).ok();
+    app_handle.emit("indexing-started", &norm_root).ok();
     
-    // Check if folder is already indexed
-    {
-        let db = DB.lock().map_err(|e| e.to_string())?;
-        if db.is_folder_indexed(&root) {
-            let file_count = db.get_folder_file_count(&root);
-            println!("Folder already indexed with {} files", file_count);
-            app_handle.emit("indexing-completed", &root).ok();
-            return Ok(IndexResult {
-                total_files: file_count,
-                indexed_files: 0,
-                skipped_files: file_count,
-                errors: vec!["Folder already indexed".to_string()],
-            });
-        }
-    }
+    // Incremental: no clearing; diffs current folder state vs scanned
 
     // Emit scanning started
     app_handle.emit("indexing-progress", "Scanning for image files...").ok();
 
-    let files = scan_directory(path, false)
+    // Shallow scan first for fast diffing
+    let shallow = scan_directory_shallow(path, false)
         .await
         .map_err(|e| e.to_string())?;
 
-    println!("Scanned {} files, starting to index...", files.len());
-    app_handle.emit("indexing-progress", format!("Found {} images, processing...", files.len())).ok();
+    println!("Scanned {} files (shallow), starting to diff...", shallow.len());
+    app_handle.emit("indexing-progress", format!("Found {} images, diffing...", shallow.len())).ok();
 
-    // Store files in database and emit each file as it's added (no long-held lock)
-    let mut indexed_count = 0;
-    for (i, mut file) in files.iter().cloned().enumerate() {
-        if file.thumbnail_path.is_none() {
-            if let Ok(thumb) = generate_thumbnail(&file.path, 300).await {
-                file.thumbnail_path = Some(thumb);
+    use std::collections::{HashMap, HashSet};
+    // Build shallow map keyed by normalized path
+    let mut shallow_map: HashMap<String, (String, i64, String)> = HashMap::new(); // norm_path -> (name, size, modified)
+    for s in &shallow {
+        shallow_map.insert(normalize_path(&s.path), (s.name.clone(), s.size, s.modified.clone()));
+    }
+
+    // Snapshot existing IDs and paths for this folder
+    let (existing_ids, existing_paths): (Vec<String>, HashSet<String>) = {
+        let db = DB.lock().map_err(|e| e.to_string())?;
+        let ids = db.folders.get(&norm_root).cloned().unwrap_or_default();
+        let mut paths = HashSet::new();
+        for id in &ids {
+            if let Some(fm) = db.files.get(id) {
+                paths.insert(normalize_path(&fm.path));
             }
         }
-        println!("Adding file to DB: {}", file.name);
-        {
-            let mut db = DB.lock().map_err(|e| e.to_string())?;
-            db.add_file(file.clone(), &root);
+        (ids, paths)
+    };
+
+    // Deletions: in DB but not in scanned
+    let mut deleted_count = 0usize;
+    for id in existing_ids {
+        let maybe_path = {
+            let db = DB.lock().map_err(|e| e.to_string())?;
+            db.files.get(&id).map(|fm| normalize_path(&fm.path))
+        };
+        if let Some(p) = maybe_path {
+            if !shallow_map.contains_key(&p) {
+                let removed = {
+                    let mut db = DB.lock().map_err(|e| e.to_string())?;
+                    db.remove_file_from_folder(&norm_root, &id)
+                };
+                if let Some(fm) = removed { remove_thumbnails_for_paths(&[fm.path.clone()], 300); }
+                deleted_count += 1;
+                app_handle.emit("indexing-progress", format!("Removed missing file(s): {}", deleted_count)).ok();
+            }
         }
-        indexed_count += 1;
-        if i % 10 == 0 || i == files.len() - 1 {
-            let progress_msg = format!("Indexed {} of {} images", i + 1, files.len());
-            app_handle.emit("indexing-progress", &progress_msg).ok();
-            app_handle.emit("file-indexed", &file).ok();
+    }
+
+    // Additions/Updates: Only upsert if new or changed (size or modified timestamp)
+    let mut upserted = 0usize;
+    let mut processed = 0usize;
+    for (norm_path, (_name, size, modified)) in shallow_map.into_iter() {
+        processed += 1;
+        // Check existing record
+        let mut needs_update = false;
+        let maybe_existing: Option<FileMeta> = {
+            let db = DB.lock().map_err(|e| e.to_string())?;
+            if let Some(file_id) = db.path_index.get(&norm_path) {
+                db.files.get(file_id).cloned()
+            } else { None }
+        };
+
+        match maybe_existing {
+            Some(existing) => {
+                // Compare size and modified; if unchanged, skip heavy work
+                if existing.size != size || existing.modified != modified {
+                    needs_update = true;
+                }
+            }
+            None => { needs_update = true; }
         }
+
+        if needs_update {
+            // Build full FileMeta by processing the file; generate thumbnail if missing
+            let file_path = norm_path.clone();
+            if let Some(meta) = process_file(Path::new(&file_path)).await.map_err(|e| e.to_string())? {
+                let mut fm = meta;
+                if fm.thumbnail_path.is_none() { if let Ok(thumb) = generate_thumbnail(&fm.path, 300).await { fm.thumbnail_path = Some(thumb); } }
+                {
+                    let mut db = DB.lock().map_err(|e| e.to_string())?;
+                    db.add_file(fm.clone(), &norm_root);
+                }
+                upserted += 1;
+                app_handle.emit("file-indexed", &fm).ok();
+            }
+        }
+
+        if processed % 25 == 0 { app_handle.emit("indexing-progress", format!("Checked {} files...", processed)).ok(); }
     }
     {
         let mut db = DB.lock().map_err(|e| e.to_string())?;
-        db.last_selected_folder = Some(root.clone());
+        db.last_selected_folder = Some(norm_root.clone());
         save_persisted_db(&db);
     }
-    
-    app_handle.emit("indexing-completed", &root).ok();
+
+    // Emit completion events (compat + summary)
+    #[derive(Serialize)]
+    struct IndexSummary<'a> {
+        root: &'a str,
+        total: usize,
+        upserted: usize,
+        deleted: usize,
+        unchanged: usize,
+    }
+    let summary = IndexSummary {
+        root: &norm_root,
+        total: shallow.len(),
+        upserted,
+        deleted: deleted_count,
+        unchanged: shallow.len().saturating_sub(upserted),
+    };
+    app_handle.emit("indexing-completed-summary", &summary).ok();
+    app_handle.emit("indexing-completed", &norm_root).ok();
 
     Ok(IndexResult {
-        total_files: files.len(),
-        indexed_files: indexed_count,
-        skipped_files: 0,
+    total_files: shallow.len(),
+    indexed_files: upserted,
+    skipped_files: deleted_count,
         errors: vec![],
     })
 }
@@ -523,6 +619,56 @@ pub async fn reset_library() -> Result<(), String> {
         db.path_index.clear();
         save_persisted_db(&db);
     }
+    // Also clear thumbnails cache directory
+    remove_all_thumbnails();
     println!("Library reset: all indexed data cleared");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reset_folder(folder_path: String) -> Result<(), String> {
+    let norm = normalize_path(&folder_path);
+    let mut db = DB.lock().map_err(|e| e.to_string())?;
+    // Try clearing by normalized key; if missing, try raw key for legacy entries
+    if db.folders.contains_key(&norm) {
+        // collect file paths for thumbnail deletion before clearing
+        let paths: Vec<String> = db
+            .folders
+            .get(&norm)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|id| db.files.get(&id).map(|fm| fm.path.clone()))
+            .collect();
+        db.clear_folder(&norm);
+        if db.last_selected_folder.as_deref() == Some(&norm) {
+            db.last_selected_folder = None;
+        }
+        save_persisted_db(&db);
+        // Best-effort remove thumbnails of default size used (300)
+        remove_thumbnails_for_paths(&paths, 300);
+        println!("Folder reset: {}", norm);
+        return Ok(());
+    }
+    if db.folders.contains_key(&folder_path) {
+        let paths: Vec<String> = db
+            .folders
+            .get(&folder_path)
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|id| db.files.get(&id).map(|fm| fm.path.clone()))
+            .collect();
+        db.clear_folder(&folder_path);
+        if db.last_selected_folder.as_deref() == Some(folder_path.as_str()) {
+            db.last_selected_folder = None;
+        }
+        save_persisted_db(&db);
+        remove_thumbnails_for_paths(&paths, 300);
+        println!("Folder reset (legacy key): {}", folder_path);
+        return Ok(());
+    }
+    // Nothing to clear
+    println!("Reset folder requested but not found: {}", folder_path);
     Ok(())
 }

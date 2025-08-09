@@ -37,10 +37,11 @@ pub fn run() {
       edit_image,
       export_metadata,
       open_in_explorer,
-  watch_folder,
-  get_library_state,
-  update_last_selected_folder
-  ,reset_library
+      watch_folder,
+      get_library_state,
+      update_last_selected_folder,
+      reset_library,
+      reset_folder
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
