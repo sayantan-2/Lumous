@@ -1,5 +1,5 @@
 /* eslint-disable */
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } from "react";
 /* eslint-disable */
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { FileMeta } from "../types";
@@ -20,18 +20,38 @@ interface FileGridProps {
 
 export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: FileGridProps) {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);
+  // Measure the scroll container (fills flex space) to size the virtual grid correctly
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   // Full-width container; we keep ref for future resize-based responsive logic if needed.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const measure = () => setContainerSize({ width: el.clientWidth, height: el.clientHeight });
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      const width = Math.max(el.clientWidth, Math.floor(rect.width));
+      const height = Math.max(el.clientHeight, Math.floor(rect.height));
+      setContainerSize((prev) => (prev.width !== width || prev.height !== height ? { width, height } : prev));
+    };
+    // Immediate measure, then a double-RAF to catch late flex sizing after refresh
     measure();
+    const raf1 = requestAnimationFrame(() => {
+      const raf2 = requestAnimationFrame(measure);
+      // store nested id on element for cleanup scope
+      (el as any)._lg_raf2 = raf2;
+    });
     const ro = new ResizeObserver(measure);
     ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+    const onWinResize = () => measure();
+    window.addEventListener('resize', onWinResize);
+    window.addEventListener('load', onWinResize, { once: true });
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', onWinResize);
+      if (raf1) cancelAnimationFrame(raf1);
+      if ((el as any)._lg_raf2) cancelAnimationFrame((el as any)._lg_raf2);
+    };
+  }, [isLoading]);
 
   const handleImageClick = (index: number) => {
     setSelectedImageIndex(index);
@@ -141,21 +161,32 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage }: Fi
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full overflow-hidden min-h-0">
-      <div className={cn("h-full w-full overflow-auto", "[scrollbar-gutter:stable]", "p-3")}
+    <div className="flex-1 min-h-0 min-w-0 flex">
+      <div
+        ref={containerRef}
+        className={cn(
+          "flex-1 min-h-0 min-w-0 overflow-auto",
+          "[scrollbar-gutter:stable]",
+          "p-3"
+        )}
       >
-        <Grid
-          columnCount={cols}
-          rowCount={rowCount}
-          columnWidth={columnWidth + gap}
-          rowHeight={rowHeight + gap}
-          height={Math.max(100, containerSize.height - padding * 2)}
-          width={Math.max(100, containerSize.width - padding * 2)}
-          overscanRowCount={4}
-          overscanColumnCount={2}
-        >
-          {cellRenderer}
-        </Grid>
+        {containerSize.width > 0 && containerSize.height > 0 ? (
+          <Grid
+            key={`${containerSize.width}x${containerSize.height}`}
+            columnCount={cols}
+            rowCount={rowCount}
+            columnWidth={columnWidth + gap}
+            rowHeight={rowHeight + gap}
+            height={Math.max(120, containerSize.height - padding * 2)}
+            width={Math.max(160, containerSize.width - padding * 2)}
+            overscanRowCount={4}
+            overscanColumnCount={2}
+          >
+            {cellRenderer}
+          </Grid>
+        ) : (
+          <div className="w-full h-full" />
+        )}
       </div>
       {selectedImageIndex !== null && (
         <ImageViewer

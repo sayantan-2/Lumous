@@ -59,6 +59,12 @@
   }
 }
 
+/* Ensure root takes full viewport height to prevent layout collapse on refresh */
+html, body, #root {
+  height: 100%;
+  min-height: 100%;
+}
+
 /* Custom scrollbar styles */
 /* Reserve space for scrollbar to prevent layout shift / gaps */
 .scroll-stable {
