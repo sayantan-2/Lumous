@@ -118,9 +118,9 @@ impl SimpleDB {
             .filter_map(|id| self.files.get(id))
             .cloned()
             .collect();
-            
+
         folder_files.sort_by(|a, b| b.modified.cmp(&a.modified));
-        
+
         let end = std::cmp::min(offset + limit, folder_files.len());
         if offset < folder_files.len() {
             folder_files[offset..end].to_vec()
@@ -132,7 +132,7 @@ impl SimpleDB {
     fn get_files(&self, offset: usize, limit: usize) -> Vec<FileMeta> {
         let mut all_files: Vec<FileMeta> = self.files.values().cloned().collect();
         all_files.sort_by(|a, b| b.modified.cmp(&a.modified));
-        
+
         let end = std::cmp::min(offset + limit, all_files.len());
         if offset < all_files.len() {
             all_files[offset..end].to_vec()
@@ -283,7 +283,7 @@ pub async fn index_folder(root: String, _recursive: bool) -> Result<IndexResult,
     }
 
     println!("Starting to scan directory: {}", norm_root);
-    
+
     // Check if folder is already indexed
     {
         let db = DB.lock().map_err(|e| e.to_string())?;
@@ -335,7 +335,7 @@ pub async fn index_folder(root: String, _recursive: bool) -> Result<IndexResult,
 #[tauri::command]
 pub async fn get_files(folder_path: Option<String>, offset: usize, limit: usize) -> Result<Vec<FileMeta>, String> {
     let db = DB.lock().map_err(|e| e.to_string())?;
-    
+
     let files = match folder_path {
         Some(folder) => {
             println!("get_files called for folder: {}, offset={}, limit={}", folder, offset, limit);
@@ -346,7 +346,7 @@ pub async fn get_files(folder_path: Option<String>, offset: usize, limit: usize)
             db.get_files(offset, limit)
         }
     };
-    
+
     println!("Returning {} files", files.len());
     Ok(files)
 }
@@ -403,10 +403,10 @@ pub async fn index_folder_streaming(
     }
 
     println!("Starting streaming indexing of directory: {}", norm_root);
-    
+
     // Emit indexing started event
     app_handle.emit("indexing-started", &norm_root).ok();
-    
+
     // Incremental: no clearing; diffs current folder state vs scanned
 
     // Snapshot-based short-circuit: compute quick folder snapshot and compare to last
@@ -599,7 +599,7 @@ pub async fn get_thumbnail(file_id: String, size: u32) -> Result<String, String>
             return Err("File not found".to_string());
         }
     };
-    
+
     // Now generate thumbnail without holding the lock
     match generate_thumbnail(&file_path, size).await {
         Ok(thumbnail_path) => Ok(thumbnail_path),
@@ -807,7 +807,7 @@ pub async fn get_sidecar_json(image_path: String) -> Result<Option<serde_json::V
     let stem_os = match p.file_stem() { Some(s) => s, None => return Ok(None) };
     let stem = stem_os.to_string_lossy();
     let json_file = format!("{}.json", stem);
-    
+
     let candidate = parent.join(&json_file);
     if candidate.is_file() {
         match fs::read_to_string(&candidate) {
@@ -830,14 +830,14 @@ pub async fn get_sidecar_data(image_path: String) -> Result<SidecarData, String>
     let parent = match p.parent() { Some(d) => d, None => return Ok(SidecarData { caption: None, metadata: None }) };
     let stem_os = match p.file_stem() { Some(s) => s, None => return Ok(SidecarData { caption: None, metadata: None }) };
     let stem = stem_os.to_string_lossy();
-    
+
     // Read caption
     let caption_candidates = [
         format!("{}.txt", stem),
         format!("{}.caption.txt", stem),
         format!("{}.md", stem),
     ];
-    
+
     let mut caption = None;
     for name in &caption_candidates {
         let candidate = parent.join(name);
@@ -851,7 +851,7 @@ pub async fn get_sidecar_data(image_path: String) -> Result<SidecarData, String>
             }
         }
     }
-    
+
     // Read JSON metadata
     let json_file = format!("{}.json", stem);
     let json_candidate = parent.join(&json_file);
@@ -864,6 +864,6 @@ pub async fn get_sidecar_data(image_path: String) -> Result<SidecarData, String>
             Err(_) => {},
         }
     }
-    
+
     Ok(SidecarData { caption, metadata })
 }

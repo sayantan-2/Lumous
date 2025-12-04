@@ -149,7 +149,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const fileName = currentFile.path.split(/[/\\]/).pop() || currentFile.path;
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -260,30 +260,30 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       </div>
 
       {/* Content: image + caption/metadata panel (reserve space for right arrow with padding) */}
-  <div className="flex-1 flex items-stretch justify-center gap-0 p-8 pr-16 overflow-hidden">
+      <div className="flex-1 flex items-stretch justify-center gap-0 p-8 pr-16 overflow-hidden">
         <div className={cn("relative inline-flex items-center justify-center overflow-visible shrink-0")}>
           <img
-          src={convertFileSrc(currentFile.path)}
-          alt={fileName}
-          className={cn(
-            (sidecarData.caption || sidecarData.metadata)
-              ? "max-w-[65vw] max-h-[calc(100vh-12rem)]"
-              : "max-w-[calc(100vw-4rem)] max-h-[calc(100vh-12rem)]",
-            "object-contain transition-transform duration-200",
-            zoom > 1 ? "cursor-grab" : "cursor-pointer",
-            isDragging && "cursor-grabbing"
-          )}
-          style={{
-            transform: `scale(${zoom}) rotate(${rotation}deg) translate(${panX / zoom}px, ${panY / zoom}px)`,
-          }}
-          onMouseDown={handleMouseDown}
-          onDoubleClick={handleDoubleClick}
-          onWheel={handleWheel}
-          onClick={handleImageClick}
-          onError={(e) => {
-            console.error('Failed to load image:', currentFile.path);
-          }}
-          draggable={false}
+            src={convertFileSrc(currentFile.path)}
+            alt={fileName}
+            className={cn(
+              (sidecarData.caption || sidecarData.metadata)
+                ? "max-w-[65vw] max-h-[calc(100vh-12rem)]"
+                : "max-w-[calc(100vw-4rem)] max-h-[calc(100vh-12rem)]",
+              "object-contain transition-transform duration-200",
+              zoom > 1 ? "cursor-grab" : "cursor-pointer",
+              isDragging && "cursor-grabbing"
+            )}
+            style={{
+              transform: `scale(${zoom}) rotate(${rotation}deg) translate(${panX / zoom}px, ${panY / zoom}px)`,
+            }}
+            onMouseDown={handleMouseDown}
+            onDoubleClick={handleDoubleClick}
+            onWheel={handleWheel}
+            onClick={handleImageClick}
+            onError={(e) => {
+              console.error('Failed to load image:', currentFile.path);
+            }}
+            draggable={false}
           />
           {(sidecarData.caption || sidecarData.metadata) && (
             <aside className="absolute top-0 left-full ml-2 w-[clamp(16rem,26vw,20rem)] max-h-[calc(100vh-12rem)] rounded-md border border-white/10 bg-black/30 backdrop-blur-sm text-white/90 p-3 overflow-auto shadow-lg shadow-black/40">
@@ -355,7 +355,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
                       <Copy className="w-4 h-4" />
                     </Button>
                   </div>
-                  
+
                   {/* Formatted metadata display */}
                   <div className="space-y-3 text-sm">
                     {/* Source */}
@@ -436,7 +436,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
                         <div className="flex items-center justify-between mb-2">
                           <p className="text-xs text-white/50 font-semibold">Prompts</p>
                         </div>
-                        
+
                         {/* Positive Prompt */}
                         {(sidecarData.metadata as any).prompts.positive && (
                           <div className="mb-3">
@@ -487,8 +487,8 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           )}
         </div>
       </div>
-  {/* Local toast for copy confirmation */}
-  <AppToast title="Copied!" description="Caption copied to clipboard" variant="success" duration={1800} open={copiedOpen} onOpenChange={setCopiedOpen} />
+      {/* Local toast for copy confirmation */}
+      <AppToast title="Copied!" description="Caption copied to clipboard" variant="success" duration={1800} open={copiedOpen} onOpenChange={setCopiedOpen} />
     </div>
   );
 }
