@@ -767,8 +767,14 @@ pub async fn reset_folder(folder_path: String) -> Result<(), String> {
 
 // ------------------------------
 // Sidecar captions
-// ------------------------------
+// Sidecar data structure for captions and metadata
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SidecarData {
+    pub caption: Option<String>,
+    pub metadata: Option<serde_json::Value>,
+}
 
+// Read caption files (.txt, .caption.txt, .md)
 #[tauri::command]
 pub async fn get_sidecar_caption(image_path: String) -> Result<Option<String>, String> {
     let p = std::path::Path::new(&image_path);
@@ -791,4 +797,73 @@ pub async fn get_sidecar_caption(image_path: String) -> Result<Option<String>, S
         }
     }
     Ok(None)
+}
+
+// Read JSON metadata file (.json)
+#[tauri::command]
+pub async fn get_sidecar_json(image_path: String) -> Result<Option<serde_json::Value>, String> {
+    let p = std::path::Path::new(&image_path);
+    let parent = match p.parent() { Some(d) => d, None => return Ok(None) };
+    let stem_os = match p.file_stem() { Some(s) => s, None => return Ok(None) };
+    let stem = stem_os.to_string_lossy();
+    let json_file = format!("{}.json", stem);
+    
+    let candidate = parent.join(&json_file);
+    if candidate.is_file() {
+        match fs::read_to_string(&candidate) {
+            Ok(content) => {
+                match serde_json::from_str(&content) {
+                    Ok(json) => return Ok(Some(json)),
+                    Err(e) => return Err(format!("Failed parsing JSON: {}", e)),
+                }
+            },
+            Err(e) => return Err(format!("Failed reading JSON file: {}", e)),
+        }
+    }
+    Ok(None)
+}
+
+// Read both caption and JSON metadata in one call
+#[tauri::command]
+pub async fn get_sidecar_data(image_path: String) -> Result<SidecarData, String> {
+    let p = std::path::Path::new(&image_path);
+    let parent = match p.parent() { Some(d) => d, None => return Ok(SidecarData { caption: None, metadata: None }) };
+    let stem_os = match p.file_stem() { Some(s) => s, None => return Ok(SidecarData { caption: None, metadata: None }) };
+    let stem = stem_os.to_string_lossy();
+    
+    // Read caption
+    let caption_candidates = [
+        format!("{}.txt", stem),
+        format!("{}.caption.txt", stem),
+        format!("{}.md", stem),
+    ];
+    
+    let mut caption = None;
+    for name in &caption_candidates {
+        let candidate = parent.join(name);
+        if candidate.is_file() {
+            match fs::read_to_string(&candidate) {
+                Ok(text) => {
+                    caption = Some(text);
+                    break;
+                },
+                Err(_) => continue,
+            }
+        }
+    }
+    
+    // Read JSON metadata
+    let json_file = format!("{}.json", stem);
+    let json_candidate = parent.join(&json_file);
+    let mut metadata = None;
+    if json_candidate.is_file() {
+        match fs::read_to_string(&json_candidate) {
+            Ok(content) => {
+                metadata = serde_json::from_str(&content).ok();
+            },
+            Err(_) => {},
+        }
+    }
+    
+    Ok(SidecarData { caption, metadata })
 }
