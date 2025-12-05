@@ -3,7 +3,6 @@ import { Plus, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { AlertDialog, AlertAction, AlertCancel } from "./ui/AlertDialog";
 import { FolderExplorer } from "./FolderExplorer";
-import { FolderTree } from "./FolderTree";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -117,8 +116,8 @@ export function Sidebar({
         </Button>
       </div>
 
-  {/* Main content */}
-  <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
 
         {/* Navigation Content */}
         <nav className="flex-1 px-3 py-3 space-y-5 overflow-y-auto">
@@ -131,14 +130,11 @@ export function Sidebar({
                 </Button>
               </div>
             )}
-            <FolderTree
+            <FolderExplorer
               folders={indexedFolders}
               selectedFolder={folderPath}
               onFolderSelect={onFolderSelect}
-              includedFolders={indexedFolders}
-              onFolderInclusionChange={(folderPath, included) => {
-                console.log("Folder inclusion change (test):", folderPath, included);
-              }}
+              condensed={isSlim}
             />
           </div>
           {/* Filters removed as requested */}
