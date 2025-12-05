@@ -54,12 +54,20 @@ export function Sidebar({
     try {
       const result = await open({
         directory: true,
-        multiple: false,
-        title: "Select folder to index",
+        multiple: true, // 1. CHANGE THIS TO TRUE
+        title: "Select folder(s) to index",
       });
 
-      if (result && typeof result === 'string') {
-        onFolderSelect(result);
+      // 2. UPDATE THIS LOGIC
+      // The dialog can now return a single string OR an array of strings
+      if (result) {
+        if (Array.isArray(result)) {
+          // If multiple folders selected, loop through and add each one
+          result.forEach((path) => onFolderSelect(path));
+        } else if (typeof result === 'string') {
+          // If only one folder selected
+          onFolderSelect(result);
+        }
       }
     } catch (error) {
       console.error("Failed to open folder dialog:", error);
