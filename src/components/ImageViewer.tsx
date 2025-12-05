@@ -6,7 +6,6 @@ import {
 } from "lucide-react";
 import { Button } from "./ui/Button";
 import { AppToast } from "./ui/Toast";
-// Ensure this path matches where you defined the interface
 import type { FileMeta } from "../types";
 import { cn } from "../lib/utils";
 
@@ -24,13 +23,11 @@ interface SidecarData {
 }
 
 // --- Helpers ---
-
 const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  // Returns e.g., "1.4 MB"
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 };
 
@@ -51,9 +48,10 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const [rotation, setRotation] = useState(0);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
+
+  // Dragging State (Only for Panning now, much simpler)
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [showControls, setShowControls] = useState(true);
 
   // UI Layout State
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -103,7 +101,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   // --- Data Fetching ---
   useEffect(() => {
     resetTransforms();
-    setShowControls(true);
+    // Default tab logic
     setMetadataTab("caption");
 
     if (currentFile?.path) {
@@ -120,7 +118,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     }
   }, [currentIndex]);
 
-  // --- Mouse Handlers ---
+  // --- Mouse Handlers (Simplified) ---
   const handleMouseDown = (e: React.MouseEvent) => {
     if (zoom > 1) {
       setIsDragging(true);
@@ -136,9 +134,17 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     }
   };
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
 
-  const handleDoubleClick = () => zoom === 1 ? setZoom(2) : resetTransforms();
+  const handleDoubleClick = () => {
+    if (zoom === 1) {
+      setZoom(2);
+    } else {
+      resetTransforms();
+    }
+  };
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
@@ -146,22 +152,19 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     setZoom(prev => Math.max(0.1, Math.min(5, prev * delta)));
   };
 
-  const handleImageClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setShowControls(!showControls);
-  };
-
   // --- Render Helpers ---
   if (!isOpen || !currentFile) return null;
 
   const fileName = currentFile.name || currentFile.path.split(/[/\\]/).pop();
   const hasSidecarContent = !!(sidecarData.caption || sidecarData.metadata);
-  const isLayoutShifted = hasSidecarContent && isSidebarOpen && showControls;
 
-  // Format the display data
-  const displaySize = formatFileSize(currentFile.size);
-  // Prefer 'created', fallback to 'modified'
-  const displayDate = formatDate(currentFile.created || currentFile.modified);
+  // Layout logic is now cleaner: Shift if Sidebar has content AND is open.
+  // We no longer check "showControls" because controls are always shown.
+  const isLayoutShifted = hasSidecarContent && isSidebarOpen;
+
+  const fileAny = currentFile as any;
+  const displaySize = fileAny.size ? formatFileSize(fileAny.size) : null;
+  const displayDate = formatDate(fileAny.created || fileAny.modified);
 
   return (
     <div
@@ -171,7 +174,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       onMouseLeave={handleMouseUp}
     >
       {/* 2. NAVIGATION ARROWS */}
-      <div className={cn("contents", !showControls && "pointer-events-none opacity-0 transition-opacity duration-300")}>
+      <div className="contents">
         <Button
           variant="ghost"
           className="absolute left-4 top-1/2 -translate-y-1/2 z-30 text-white/50 hover:text-white hover:bg-black/40 h-16 w-16 rounded-full p-0 disabled:opacity-0 transition-all"
@@ -198,8 +201,10 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       <div
         className="relative w-full h-full flex items-center justify-center transition-all duration-300 ease-in-out"
         style={{
+          // Reserve space for sidebar on right
           paddingRight: isLayoutShifted ? `${SIDEBAR_WIDTH_REM}rem` : '0',
-          paddingBottom: showControls ? `${BOTTOM_BAR_HEIGHT_PX}px` : '0'
+          // Reserve fixed space for bottom bar
+          paddingBottom: `${BOTTOM_BAR_HEIGHT_PX}px`
         }}
       >
         <div className="relative flex items-center justify-center w-full h-full p-4">
@@ -217,7 +222,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
             onMouseDown={handleMouseDown}
             onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
-            onClick={handleImageClick}
+            // No onClick handler needed for toggling UI anymore
             draggable={false}
           />
         </div>
@@ -232,7 +237,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           )}
           style={{
             width: `${SIDEBAR_WIDTH_REM}rem`,
-            bottom: showControls ? `${BOTTOM_BAR_HEIGHT_PX}px` : '0',
+            bottom: `${BOTTOM_BAR_HEIGHT_PX}px`, // Always sits above bottom bar
             height: 'auto',
             top: 0
           }}
@@ -323,11 +328,8 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </aside>
       )}
 
-      {/* 5. BOTTOM CONTROL BAR */}
-      <div className={cn(
-        "absolute bottom-0 left-0 right-0 z-40 bg-neutral-950/90 backdrop-blur-md border-t border-white/10 transition-transform duration-300 ease-in-out px-4 flex items-center justify-between",
-        !showControls ? "translate-y-full" : "translate-y-0"
-      )}
+      {/* 5. BOTTOM CONTROL BAR (Always Visible) */}
+      <div className="absolute bottom-0 left-0 right-0 z-40 bg-neutral-950/90 backdrop-blur-md border-t border-white/10 px-4 flex items-center justify-between"
         style={{ height: `${BOTTOM_BAR_HEIGHT_PX}px` }}
       >
         {/* LEFT GROUP: Close | Filename | Details */}
