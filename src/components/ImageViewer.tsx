@@ -48,15 +48,14 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const [rotation, setRotation] = useState(0);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
-  const [imgSize, setImgSize] = useState({ w: 0, h: 0 }); // Track natural dimensions
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 }); // Natural image dimensions
 
   // Dragging State
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   // Refs
-  const containerRef = useRef<HTMLDivElement>(null); // To measure viewport
-  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // UI Layout State
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -78,7 +77,6 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     setRotation(0);
     setPanX(0);
     setPanY(0);
-    if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
   };
 
   useEffect(() => {
@@ -118,29 +116,27 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     }
   }, [currentIndex]);
 
-
-  // --- BOUNDARY LOGIC (The Fix) ---
+  // --- Boundary Logic ---
   const getBounds = useCallback(() => {
     if (!containerRef.current || imgSize.w === 0) return { x: 0, y: 0 };
 
     const viewportW = containerRef.current.clientWidth;
     const viewportH = containerRef.current.clientHeight;
 
-    // Handle Rotation swapping dimensions
+    // Handle Rotation swapping dimensions logic
     const isRotated = Math.abs(rotation) % 180 === 90;
     const currentW = (isRotated ? imgSize.h : imgSize.w) * zoom;
     const currentH = (isRotated ? imgSize.w : imgSize.h) * zoom;
 
-    // Logic:
-    // If image < viewport, bound is 0 (force center).
-    // If image > viewport, bound is the surplus divided by 2.
+    // If image is larger than viewport, allowed pan is (ImageSize - Viewport) / 2
+    // If smaller, allowed pan is 0 (forced center)
     const xBound = currentW > viewportW ? (currentW - viewportW) / 2 : 0;
     const yBound = currentH > viewportH ? (currentH - viewportH) / 2 : 0;
 
     return { x: xBound, y: yBound };
   }, [zoom, rotation, imgSize]);
 
-  // Re-clamp when zoom/rotation changes (prevents image getting stuck out of view)
+  // Re-clamp position when zoom/rotation/size changes
   useEffect(() => {
     const bounds = getBounds();
     setPanX(p => Math.max(-bounds.x, Math.min(bounds.x, p)));
@@ -150,9 +146,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
 
   // --- Mouse Handlers ---
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Allow dragging even if zoom is 1 if the image is naturally larger than screen?
-    // Usually only allow drag if zoomed or large. For simplicity, we check zoom > 1 OR large image.
-    // But sticking to your previous logic:
+    // Only drag if zoomed in or if image is physically larger than screen (optional logic, sticking to zoom > 1 for consistency)
     if (zoom > 1) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
@@ -163,21 +157,17 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isDragging && zoom > 1) {
       e.preventDefault();
-
       const newX = e.clientX - dragStart.x;
       const newY = e.clientY - dragStart.y;
 
       const bounds = getBounds();
-
-      // CLAMP: Keep newX between -bounds.x and +bounds.x
+      // Hard clamp to boundaries
       setPanX(Math.max(-bounds.x, Math.min(bounds.x, newX)));
       setPanY(Math.max(-bounds.y, Math.min(bounds.y, newY)));
     }
   };
 
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
+  const handleMouseUp = () => setIsDragging(false);
 
   const handleDoubleClick = () => {
     if (zoom === 1) {
@@ -212,7 +202,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
     >
-      {/* 2. NAVIGATION ARROWS */}
+      {/* NAVIGATION ARROWS */}
       <div className="contents">
         <Button
           variant="ghost"
@@ -236,7 +226,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </Button>
       </div>
 
-      {/* 3. MAIN IMAGE AREA */}
+      {/* MAIN IMAGE AREA */}
       <div
         className="relative w-full h-full flex items-center justify-center transition-all duration-300 ease-in-out"
         style={{
@@ -244,15 +234,10 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           paddingBottom: `${BOTTOM_BAR_HEIGHT_PX}px`
         }}
       >
-        {/* Added ref={containerRef} here to measure the viewport size for bounds calculations */}
-        <div
-          ref={containerRef}
-          className="relative flex items-center justify-center w-full h-full overflow-hidden"
-        >
+        <div ref={containerRef} className="relative flex items-center justify-center w-full h-full overflow-hidden">
           <img
             src={convertFileSrc(currentFile.path)}
             alt={fileName}
-            // Capture natural dimensions on load
             onLoad={(e) => setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
             className={cn(
               "max-w-full max-h-full object-contain transition-transform duration-75 will-change-transform shadow-2xl",
@@ -270,7 +255,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </div>
       </div>
 
-      {/* 4. SIDEBAR */}
+      {/* SIDEBAR */}
       {hasSidecarContent && (
         <aside
           className={cn(
@@ -284,7 +269,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
             top: 0
           }}
         >
-          {/* ... Sidebar Tabs ... */}
+          {/* Tabs */}
           {sidecarData.caption && sidecarData.metadata && (
             <div className="p-4 border-b border-white/5 shrink-0">
               <div className="bg-black/40 p-1 rounded-lg flex gap-1">
@@ -298,8 +283,9 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
             </div>
           )}
 
+          {/* Scrollable Content */}
           <div className="flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-            {/* CAPTION */}
+            {/* Caption */}
             {(metadataTab === "caption" || !sidecarData.metadata) && sidecarData.caption && (
               <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-200">
                 <div className="flex items-center justify-between">
@@ -311,7 +297,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
                 <div className="text-sm text-white/80 leading-relaxed font-mono whitespace-pre-wrap bg-white/5 p-3 rounded-lg border border-white/5">{sidecarData.caption}</div>
               </div>
             )}
-            {/* METADATA */}
+            {/* Metadata */}
             {(metadataTab === "metadata" || !sidecarData.caption) && sidecarData.metadata && (
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
                 {(sidecarData.metadata as any)?.prompts && (
@@ -351,10 +337,11 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </aside>
       )}
 
-      {/* 5. BOTTOM CONTROL BAR */}
+      {/* BOTTOM CONTROL BAR */}
       <div className="absolute bottom-0 left-0 right-0 z-40 bg-neutral-950/90 backdrop-blur-md border-t border-white/10 px-4 flex items-center justify-between"
         style={{ height: `${BOTTOM_BAR_HEIGHT_PX}px` }}
       >
+        {/* Left: Close/Info */}
         <div className="flex items-center gap-4 h-full">
           <Button variant="ghost" size="icon" onClick={onClose} className="h-9 w-9 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors shrink-0" title="Close Viewer (Esc)">
             <X className="w-5 h-5" />
@@ -371,6 +358,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           </div>
         </div>
 
+        {/* Center: Zoom/Rotate/Reset */}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto">
           <Button variant="ghost" size="icon" onClick={() => setZoom(prev => Math.max(prev * 0.8, 0.1))} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full"><ZoomOut className="w-4 h-4" /></Button>
           <div className="w-24 group flex items-center">
@@ -381,8 +369,21 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           <span className="text-white/50 text-xs font-mono w-10 text-center select-none">{Math.round(zoom * 100)}%</span>
           <div className="w-px h-4 bg-white/10 mx-1" />
           <Button variant="ghost" size="icon" onClick={() => setRotation(prev => (prev + 90) % 360)} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full" title="Rotate"><RotateCw className="w-4 h-4" /></Button>
+
+          {/* RESET BUTTON */}
+          <div className="w-px h-4 bg-white/10 mx-1" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={resetTransforms}
+            className="h-8 px-2 text-[10px] tracking-wider text-white/70 hover:text-white hover:bg-white/10 rounded-full font-medium"
+            title="Reset Zoom & Rotation"
+          >
+            RESET
+          </Button>
         </div>
 
+        {/* Right: Info Toggle */}
         <div className="flex items-center gap-2 pointer-events-auto">
           {hasSidecarContent && (
             <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={cn("h-8 w-8 rounded-full transition-colors", isSidebarOpen ? "text-emerald-400 bg-white/10" : "text-white/70 hover:text-white hover:bg-white/10")} title="Toggle Info Panel (i)">
