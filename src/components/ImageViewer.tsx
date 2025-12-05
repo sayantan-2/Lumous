@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import {
   X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
@@ -48,10 +48,15 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const [rotation, setRotation] = useState(0);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
+  const [imgSize, setImgSize] = useState({ w: 0, h: 0 }); // Track natural dimensions
 
-  // Dragging State (Only for Panning now, much simpler)
+  // Dragging State
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Refs
+  const containerRef = useRef<HTMLDivElement>(null); // To measure viewport
+  const clickTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // UI Layout State
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -67,10 +72,17 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   const SIDEBAR_WIDTH_REM = 22;
   const BOTTOM_BAR_HEIGHT_PX = 64;
 
-  // --- Keyboard & Reset Logic ---
+  // --- Reset & Keyboard Logic ---
+  const resetTransforms = () => {
+    setZoom(1);
+    setRotation(0);
+    setPanX(0);
+    setPanY(0);
+    if (clickTimeoutRef.current) clearTimeout(clickTimeoutRef.current);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
-
     const handleKeydown = (e: KeyboardEvent) => {
       switch (e.key) {
         case 'Escape': onClose(); break;
@@ -86,31 +98,19 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         case 'i': setIsSidebarOpen(prev => !prev); break;
       }
     };
-
     document.addEventListener('keydown', handleKeydown);
     return () => document.removeEventListener('keydown', handleKeydown);
   }, [isOpen, currentIndex, files.length, onClose, onIndexChange]);
 
-  const resetTransforms = () => {
-    setZoom(1);
-    setRotation(0);
-    setPanX(0);
-    setPanY(0);
-  };
-
   // --- Data Fetching ---
   useEffect(() => {
     resetTransforms();
-    // Default tab logic
     setMetadataTab("caption");
-
     if (currentFile?.path) {
       invoke<SidecarData>("get_sidecar_data", { imagePath: currentFile.path })
         .then((data) => {
           setSidecarData(data);
-          if (!data.caption && data.metadata) {
-            setMetadataTab("metadata");
-          }
+          if (!data.caption && data.metadata) setMetadataTab("metadata");
         })
         .catch(() => setSidecarData({ caption: null, metadata: null }));
     } else {
@@ -118,8 +118,41 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     }
   }, [currentIndex]);
 
-  // --- Mouse Handlers (Simplified) ---
+
+  // --- BOUNDARY LOGIC (The Fix) ---
+  const getBounds = useCallback(() => {
+    if (!containerRef.current || imgSize.w === 0) return { x: 0, y: 0 };
+
+    const viewportW = containerRef.current.clientWidth;
+    const viewportH = containerRef.current.clientHeight;
+
+    // Handle Rotation swapping dimensions
+    const isRotated = Math.abs(rotation) % 180 === 90;
+    const currentW = (isRotated ? imgSize.h : imgSize.w) * zoom;
+    const currentH = (isRotated ? imgSize.w : imgSize.h) * zoom;
+
+    // Logic:
+    // If image < viewport, bound is 0 (force center).
+    // If image > viewport, bound is the surplus divided by 2.
+    const xBound = currentW > viewportW ? (currentW - viewportW) / 2 : 0;
+    const yBound = currentH > viewportH ? (currentH - viewportH) / 2 : 0;
+
+    return { x: xBound, y: yBound };
+  }, [zoom, rotation, imgSize]);
+
+  // Re-clamp when zoom/rotation changes (prevents image getting stuck out of view)
+  useEffect(() => {
+    const bounds = getBounds();
+    setPanX(p => Math.max(-bounds.x, Math.min(bounds.x, p)));
+    setPanY(p => Math.max(-bounds.y, Math.min(bounds.y, p)));
+  }, [getBounds]);
+
+
+  // --- Mouse Handlers ---
   const handleMouseDown = (e: React.MouseEvent) => {
+    // Allow dragging even if zoom is 1 if the image is naturally larger than screen?
+    // Usually only allow drag if zoomed or large. For simplicity, we check zoom > 1 OR large image.
+    // But sticking to your previous logic:
     if (zoom > 1) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - panX, y: e.clientY - panY });
@@ -129,8 +162,16 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isDragging && zoom > 1) {
-      setPanX(e.clientX - dragStart.x);
-      setPanY(e.clientY - dragStart.y);
+      e.preventDefault();
+
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+
+      const bounds = getBounds();
+
+      // CLAMP: Keep newX between -bounds.x and +bounds.x
+      setPanX(Math.max(-bounds.x, Math.min(bounds.x, newX)));
+      setPanY(Math.max(-bounds.y, Math.min(bounds.y, newY)));
     }
   };
 
@@ -152,14 +193,12 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
     setZoom(prev => Math.max(0.1, Math.min(5, prev * delta)));
   };
 
+
   // --- Render Helpers ---
   if (!isOpen || !currentFile) return null;
 
   const fileName = currentFile.name || currentFile.path.split(/[/\\]/).pop();
   const hasSidecarContent = !!(sidecarData.caption || sidecarData.metadata);
-
-  // Layout logic is now cleaner: Shift if Sidebar has content AND is open.
-  // We no longer check "showControls" because controls are always shown.
   const isLayoutShifted = hasSidecarContent && isSidebarOpen;
 
   const fileAny = currentFile as any;
@@ -201,16 +240,20 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
       <div
         className="relative w-full h-full flex items-center justify-center transition-all duration-300 ease-in-out"
         style={{
-          // Reserve space for sidebar on right
           paddingRight: isLayoutShifted ? `${SIDEBAR_WIDTH_REM}rem` : '0',
-          // Reserve fixed space for bottom bar
           paddingBottom: `${BOTTOM_BAR_HEIGHT_PX}px`
         }}
       >
-        <div className="relative flex items-center justify-center w-full h-full p-4">
+        {/* Added ref={containerRef} here to measure the viewport size for bounds calculations */}
+        <div
+          ref={containerRef}
+          className="relative flex items-center justify-center w-full h-full overflow-hidden"
+        >
           <img
             src={convertFileSrc(currentFile.path)}
             alt={fileName}
+            // Capture natural dimensions on load
+            onLoad={(e) => setImgSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
             className={cn(
               "max-w-full max-h-full object-contain transition-transform duration-75 will-change-transform shadow-2xl",
               zoom > 1 ? "cursor-grab" : "cursor-pointer",
@@ -222,7 +265,6 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
             onMouseDown={handleMouseDown}
             onDoubleClick={handleDoubleClick}
             onWheel={handleWheel}
-            // No onClick handler needed for toggling UI anymore
             draggable={false}
           />
         </div>
@@ -237,31 +279,19 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
           )}
           style={{
             width: `${SIDEBAR_WIDTH_REM}rem`,
-            bottom: `${BOTTOM_BAR_HEIGHT_PX}px`, // Always sits above bottom bar
+            bottom: `${BOTTOM_BAR_HEIGHT_PX}px`,
             height: 'auto',
             top: 0
           }}
         >
-          {/* Sidebar Tabs */}
+          {/* ... Sidebar Tabs ... */}
           {sidecarData.caption && sidecarData.metadata && (
             <div className="p-4 border-b border-white/5 shrink-0">
               <div className="bg-black/40 p-1 rounded-lg flex gap-1">
-                <button
-                  onClick={() => setMetadataTab("caption")}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all",
-                    metadataTab === "caption" ? "bg-white/10 text-white shadow-sm" : "text-white/40 hover:text-white/60"
-                  )}
-                >
+                <button onClick={() => setMetadataTab("caption")} className={cn("flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all", metadataTab === "caption" ? "bg-white/10 text-white shadow-sm" : "text-white/40 hover:text-white/60")}>
                   <MessageSquare className="w-3 h-3" /> Caption
                 </button>
-                <button
-                  onClick={() => setMetadataTab("metadata")}
-                  className={cn(
-                    "flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all",
-                    metadataTab === "metadata" ? "bg-white/10 text-white shadow-sm" : "text-white/40 hover:text-white/60"
-                  )}
-                >
+                <button onClick={() => setMetadataTab("metadata")} className={cn("flex-1 flex items-center justify-center gap-2 py-1.5 text-xs font-medium rounded-md transition-all", metadataTab === "metadata" ? "bg-white/10 text-white shadow-sm" : "text-white/40 hover:text-white/60")}>
                   <Info className="w-3 h-3" /> Info
                 </button>
               </div>
@@ -278,24 +308,19 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
                     <Copy className="w-3 h-3" />
                   </Button>
                 </div>
-                <div className="text-sm text-white/80 leading-relaxed font-mono whitespace-pre-wrap bg-white/5 p-3 rounded-lg border border-white/5">
-                  {sidecarData.caption}
-                </div>
+                <div className="text-sm text-white/80 leading-relaxed font-mono whitespace-pre-wrap bg-white/5 p-3 rounded-lg border border-white/5">{sidecarData.caption}</div>
               </div>
             )}
             {/* METADATA */}
             {(metadataTab === "metadata" || !sidecarData.caption) && sidecarData.metadata && (
               <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-200">
-                {/* Prompts */}
                 {(sidecarData.metadata as any)?.prompts && (
                   <div className="space-y-4">
                     {(sidecarData.metadata as any).prompts.positive && (
                       <div className="group relative">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[10px] uppercase tracking-wider text-emerald-400/60 font-bold border border-emerald-500/20 px-1.5 py-0.5 rounded">Positive</span>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 text-white/30 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigator.clipboard.writeText((sidecarData.metadata as any).prompts.positive).then(() => setCopiedOpen(true))}>
-                            <Copy className="w-3 h-3" />
-                          </Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 text-white/30 hover:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigator.clipboard.writeText((sidecarData.metadata as any).prompts.positive).then(() => setCopiedOpen(true))}><Copy className="w-3 h-3" /></Button>
                         </div>
                         <p className="text-xs text-white/70 font-mono bg-emerald-950/20 border border-emerald-500/10 p-3 rounded-lg break-words leading-relaxed selection:bg-emerald-500/30">{(sidecarData.metadata as any).prompts.positive}</p>
                       </div>
@@ -304,9 +329,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
                       <div className="group relative">
                         <div className="flex items-center justify-between mb-2">
                           <span className="text-[10px] uppercase tracking-wider text-rose-400/60 font-bold border border-rose-500/20 px-1.5 py-0.5 rounded">Negative</span>
-                          <Button variant="ghost" size="icon" className="h-5 w-5 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigator.clipboard.writeText((sidecarData.metadata as any).prompts.negative).then(() => setCopiedOpen(true))}>
-                            <Copy className="w-3 h-3" />
-                          </Button>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 text-white/30 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => navigator.clipboard.writeText((sidecarData.metadata as any).prompts.negative).then(() => setCopiedOpen(true))}><Copy className="w-3 h-3" /></Button>
                         </div>
                         <p className="text-xs text-white/60 font-mono bg-rose-950/10 border border-rose-500/10 p-3 rounded-lg break-words leading-relaxed selection:bg-rose-500/30">{(sidecarData.metadata as any).prompts.negative}</p>
                       </div>
@@ -328,97 +351,41 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
         </aside>
       )}
 
-      {/* 5. BOTTOM CONTROL BAR (Always Visible) */}
+      {/* 5. BOTTOM CONTROL BAR */}
       <div className="absolute bottom-0 left-0 right-0 z-40 bg-neutral-950/90 backdrop-blur-md border-t border-white/10 px-4 flex items-center justify-between"
         style={{ height: `${BOTTOM_BAR_HEIGHT_PX}px` }}
       >
-        {/* LEFT GROUP: Close | Filename | Details */}
         <div className="flex items-center gap-4 h-full">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="h-9 w-9 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors shrink-0"
-            title="Close Viewer (Esc)"
-          >
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-9 w-9 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors shrink-0" title="Close Viewer (Esc)">
             <X className="w-5 h-5" />
           </Button>
-
           <div className="w-px h-8 bg-white/10 shrink-0" />
-
           <div className="flex flex-col justify-center min-w-0">
-            <span className="text-white/90 text-sm font-medium truncate max-w-[250px] leading-tight" title={fileName}>
-              {fileName}
-            </span>
-
+            <span className="text-white/90 text-sm font-medium truncate max-w-[250px] leading-tight" title={fileName}>{fileName}</span>
             <div className="flex items-center gap-2.5 text-[11px] text-white/50 font-mono mt-0.5 leading-tight">
               <span>{currentIndex + 1} / {files.length}</span>
-
-              {displaySize && (
-                <>
-                  <span className="w-px h-2.5 bg-white/10"></span>
-                  <span>{displaySize}</span>
-                </>
-              )}
-
-              {currentFile.dimensions && (
-                <>
-                  <span className="w-px h-2.5 bg-white/10"></span>
-                  <span>{currentFile.dimensions.width} × {currentFile.dimensions.height}</span>
-                </>
-              )}
-
-              {displayDate && (
-                <>
-                  <span className="w-px h-2.5 bg-white/10"></span>
-                  <span>{displayDate}</span>
-                </>
-              )}
+              {displaySize && <><span className="w-px h-2.5 bg-white/10"></span><span>{displaySize}</span></>}
+              {currentFile.dimensions && <><span className="w-px h-2.5 bg-white/10"></span><span>{currentFile.dimensions.width} × {currentFile.dimensions.height}</span></>}
+              {displayDate && <><span className="w-px h-2.5 bg-white/10"></span><span>{displayDate}</span></>}
             </div>
           </div>
         </div>
 
-        {/* CENTER GROUP: Zoom Controls */}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2 pointer-events-auto">
-          <Button variant="ghost" size="icon" onClick={() => setZoom(prev => Math.max(prev * 0.8, 0.1))} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full">
-            <ZoomOut className="w-4 h-4" />
-          </Button>
-
+          <Button variant="ghost" size="icon" onClick={() => setZoom(prev => Math.max(prev * 0.8, 0.1))} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full"><ZoomOut className="w-4 h-4" /></Button>
           <div className="w-24 group flex items-center">
-            <input
-              type="range" min="10" max="500" value={zoom * 100}
-              onChange={(e) => setZoom(Number(e.target.value) / 100)}
-              className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:hover:bg-white/90"
-            />
+            <input type="range" min="10" max="500" value={zoom * 100} onChange={(e) => setZoom(Number(e.target.value) / 100)} className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:hover:bg-white/90" />
           </div>
-
-          <Button variant="ghost" size="icon" onClick={() => setZoom(prev => Math.min(prev * 1.2, 5))} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full">
-            <ZoomIn className="w-4 h-4" />
-          </Button>
-
+          <Button variant="ghost" size="icon" onClick={() => setZoom(prev => Math.min(prev * 1.2, 5))} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full"><ZoomIn className="w-4 h-4" /></Button>
           <div className="w-px h-4 bg-white/10 mx-1" />
-
           <span className="text-white/50 text-xs font-mono w-10 text-center select-none">{Math.round(zoom * 100)}%</span>
           <div className="w-px h-4 bg-white/10 mx-1" />
-
-          <Button variant="ghost" size="icon" onClick={() => setRotation(prev => (prev + 90) % 360)} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full" title="Rotate">
-            <RotateCw className="w-4 h-4" />
-          </Button>
+          <Button variant="ghost" size="icon" onClick={() => setRotation(prev => (prev + 90) % 360)} className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10 rounded-full" title="Rotate"><RotateCw className="w-4 h-4" /></Button>
         </div>
 
-        {/* RIGHT GROUP: Info Toggle */}
         <div className="flex items-center gap-2 pointer-events-auto">
           {hasSidecarContent && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className={cn(
-                "h-8 w-8 rounded-full transition-colors",
-                isSidebarOpen ? "text-emerald-400 bg-white/10" : "text-white/70 hover:text-white hover:bg-white/10"
-              )}
-              title="Toggle Info Panel (i)"
-            >
+            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={cn("h-8 w-8 rounded-full transition-colors", isSidebarOpen ? "text-emerald-400 bg-white/10" : "text-white/70 hover:text-white hover:bg-white/10")} title="Toggle Info Panel (i)">
               {isSidebarOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
             </Button>
           )}
