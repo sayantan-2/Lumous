@@ -326,7 +326,7 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
                 <div className="grid grid-cols-2 gap-3">
                   <MetaItem label="Model" value={(sidecarData.metadata as any)?.model} fullWidth />
                   <MetaItem label="LoRA" value={(sidecarData.metadata as any)?.lora?.name} sub={(sidecarData.metadata as any)?.lora?.weight ? `Weight: ${(sidecarData.metadata as any).lora.weight}` : null} fullWidth />
-                  <MetaItem label="Seed" value={(sidecarData.metadata as any)?.settings?.seed} />
+                  <MetaItem label="Seed" value={(sidecarData.metadata as any)?.settings?.seed} copyable onCopy={() => navigator.clipboard.writeText(String((sidecarData.metadata as any)?.settings?.seed)).then(() => setCopiedOpen(true))} />
                   <MetaItem label="Steps" value={(sidecarData.metadata as any)?.settings?.steps} />
                   <MetaItem label="CFG Scale" value={(sidecarData.metadata as any)?.settings?.cfg_scale} />
                   <MetaItem label="Sampler" value={(sidecarData.metadata as any)?.settings?.sampler} />
@@ -398,11 +398,18 @@ export function ImageViewer({ files, currentIndex, isOpen, onClose, onIndexChang
   );
 }
 
-function MetaItem({ label, value, sub, fullWidth }: { label: string, value: any, sub?: string | null, fullWidth?: boolean }) {
+function MetaItem({ label, value, sub, fullWidth, copyable, onCopy }: { label: string, value: any, sub?: string | null, fullWidth?: boolean, copyable?: boolean, onCopy?: () => void }) {
   if (!value) return null;
   return (
-    <div className={cn("bg-white/5 rounded-md p-2.5 border border-white/5", fullWidth && "col-span-2")}>
-      <p className="text-[10px] uppercase tracking-wider text-white/30 font-bold mb-1">{label}</p>
+    <div className={cn("bg-white/5 rounded-md p-2.5 border border-white/5 group", fullWidth && "col-span-2")}>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <p className="text-[10px] uppercase tracking-wider text-white/30 font-bold">{label}</p>
+        {copyable && onCopy && (
+          <Button variant="ghost" size="icon" className="h-4 w-4 text-white/30 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity" onClick={onCopy}>
+            <Copy className="w-3 h-3" />
+          </Button>
+        )}
+      </div>
       <p className="text-xs text-white/90 font-mono truncate" title={String(value)}>{value}</p>
       {sub && <p className="text-[10px] text-white/50 font-mono mt-0.5">{sub}</p>}
     </div>
