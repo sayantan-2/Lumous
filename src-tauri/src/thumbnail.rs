@@ -1,7 +1,7 @@
-use anyhow::{Result, anyhow};
-use std::path::Path;
-use sha2::{Digest, Sha256};
+use anyhow::{anyhow, Result};
 use image::codecs::jpeg::JpegEncoder;
+use sha2::{Digest, Sha256};
+use std::path::Path;
 
 pub async fn generate_thumbnail(file_path: &str, size: u32) -> Result<String> {
     let file_path = file_path.to_string();
@@ -20,9 +20,23 @@ pub async fn generate_thumbnail(file_path: &str, size: u32) -> Result<String> {
         let thumbnail_filename = format!("{}_{}.jpg", short, size);
         let thumbnail_path = thumbnails_dir.join(thumbnail_filename);
 
-        // Check if thumbnail already exists
+        // Check if thumbnail exists and is fresh
         if thumbnail_path.exists() {
-            return Ok(thumbnail_path.to_string_lossy().to_string());
+            // Get metadata for both source and thumbnail
+            // Use if let to safely handle cases where file might be locked or unreadable
+            if let (Ok(src_meta), Ok(thumb_meta)) = (
+                std::fs::metadata(source),
+                std::fs::metadata(&thumbnail_path),
+            ) {
+                if let (Ok(src_time), Ok(thumb_time)) = (src_meta.modified(), thumb_meta.modified())
+                {
+                    // If thumbnail is newer or equal to source, return it
+                    if thumb_time >= src_time {
+                        return Ok(thumbnail_path.to_string_lossy().to_string());
+                    }
+                }
+            }
+            // If we fall through here, the thumbnail is stale or metadata failed, so we regenerate.
         }
 
         // Load and resize image

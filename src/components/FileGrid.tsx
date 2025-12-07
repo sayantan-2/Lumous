@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo, useCallback, useLayoutEffect } fr
 /* eslint-disable */
 import { convertFileSrc } from '@tauri-apps/api/core';
 import type { FileMeta } from "../types";
-import { cn } from "../lib/utils";
+import { cn, getAssetUrl } from "../lib/utils";
 import { ImageViewer } from "./ImageViewer";
 import { FixedSizeGrid as Grid, GridChildComponentProps } from "react-window";
 
@@ -107,7 +107,8 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage, imag
             style={{ width: contentSize, height: contentSize }}
           >
             <img
-              src={convertFileSrc(displayPath)}
+              // src={convertFileSrc(displayPath)}
+              src={getAssetUrl(displayPath, file.modified)}
               alt={fileName}
               className="w-full h-full object-cover"
               loading="lazy"
@@ -130,7 +131,7 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage, imag
   if (isLoading) {
     const isIndexing = loadingMessage && loadingMessage.includes("indexing");
     return (
-  <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center">
+      <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center">
         <div className="text-center max-w-md">
           <div className="animate-pulse mb-4">
             <div className="w-16 h-16 bg-muted rounded-lg mx-auto"></div>
@@ -156,7 +157,7 @@ export function FileGrid({ files, isLoading, thumbnailSize, loadingMessage, imag
 
   if (files.length === 0) {
     return (
-  <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center">
+      <div className="flex-1 min-h-0 min-w-0 flex items-center justify-center">
         <div className="text-center">
           <h2 className="text-xl font-semibold mb-2">No images found</h2>
           <p className="text-muted-foreground">
