@@ -168,6 +168,15 @@ function App() {
         }
       });
 
+      // Listen for backend filesystem watch updates
+      const libraryUpdatedUnlisten = await listen('library-updated', (event) => {
+        // Invalidate indexed folders and current folder files so UI refreshes
+        queryClient.invalidateQueries({ queryKey: ["indexedFolders"] });
+        if (selectedFolder) {
+          queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
+        }
+      });
+
       return () => {
         progressUnlisten();
         startedUnlisten();
@@ -176,6 +185,7 @@ function App() {
   fileIndexedUnlisten();
   batchUnlisten();
   updatedUnlisten();
++        libraryUpdatedUnlisten();
       };
     };
 
@@ -290,6 +300,13 @@ function App() {
         invoke("index_folder_streaming", { root: folderPath, recursive: false }).catch((e)=>{
           console.error("Indexing failed to start", e);
         });
+      }
+
+      // Start backend filesystem watcher for this folder (best-effort, idempotent)
+      try {
+        invoke("watch_folder", { folderPath: folderPath }).catch(() => {});
+      } catch (e) {
+        console.warn("Failed to start folder watcher", e);
       }
 
     } catch (error) {

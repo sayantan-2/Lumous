@@ -5,6 +5,7 @@ import {
   MoreVertical,
   Trash2,
   RefreshCcw,
+  Eye,
   ChevronRight,
   ChevronDown
 } from "lucide-react";
@@ -277,6 +278,10 @@ function FolderTreeItem({ node, selectedFolder, onSelect, depth, condensed, coll
               <DropdownItem onSelect={() => invoke("index_folder_streaming", { root: node.path, recursive: false })}>
                 <RefreshCcw className="w-4 h-4" />
                 <span>Re-index</span>
+              </DropdownItem>
+              <DropdownItem onSelect={() => { invoke("watch_folder", { folderPath: node.path }).catch(()=>{}); }}>
+                <Eye className="w-4 h-4" />
+                <span>Watch folder</span>
               </DropdownItem>
               <DropdownSeparator />
               <DropdownItem onSelect={() => setConfirmReset(true)}>
