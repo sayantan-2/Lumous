@@ -2,7 +2,7 @@ mod commands;
 mod models;
 mod indexer;
 mod thumbnail;
-
+mod database;
 use commands::*;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

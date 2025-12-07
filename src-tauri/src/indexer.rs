@@ -1,4 +1,5 @@
-use crate::models::{FileMeta, Dimensions};
+// Added FolderSnapshot to imports
+use crate::models::{FileMeta, Dimensions, FolderSnapshot};
 use std::path::Path;
 use std::fs;
 use walkdir::WalkDir;
@@ -10,7 +11,7 @@ const SUPPORTED_EXTENSIONS: &[&str] = &[
 
 pub async fn scan_directory(root: &Path, _recursive: bool) -> Result<Vec<FileMeta>, Box<dyn std::error::Error + Send + Sync>> {
     let mut files = Vec::new();
-    
+
     // Force non-recursive (max_depth = 1)
     let walker = WalkDir::new(root).max_depth(1).into_iter();
 
@@ -25,7 +26,6 @@ pub async fn scan_directory(root: &Path, _recursive: bool) -> Result<Vec<FileMet
     Ok(files)
 }
 
-/// Shallow file info used for incremental comparisons without decoding images.
 #[derive(Clone, Debug)]
 pub struct ShallowMeta {
     pub path: String,
@@ -36,10 +36,8 @@ pub struct ShallowMeta {
     pub ext: String,
 }
 
-/// Scan directory without decoding images; returns basic metadata for quick diffing.
 pub async fn scan_directory_shallow(root: &Path, _recursive: bool) -> Result<Vec<ShallowMeta>, Box<dyn std::error::Error + Send + Sync>> {
     let mut files = Vec::new();
-
     let walker = WalkDir::new(root).max_depth(1).into_iter();
 
     for entry in walker.filter_map(|e| e.ok()) {
@@ -62,7 +60,7 @@ pub async fn scan_directory_shallow(root: &Path, _recursive: bool) -> Result<Vec
                 .unwrap_or("unknown")
                 .to_string();
 
-            use std::time::{SystemTime, UNIX_EPOCH};
+            use std::time::UNIX_EPOCH;
             let modified_sec: i64 = metadata
                 .modified()
                 .ok()
@@ -92,7 +90,6 @@ pub async fn scan_directory_shallow(root: &Path, _recursive: bool) -> Result<Vec
 }
 
 pub async fn process_file(path: &Path) -> Result<Option<FileMeta>, Box<dyn std::error::Error + Send + Sync>> {
-    // Check if it's an image file
     let extension = path.extension()
         .and_then(|ext| ext.to_str())
         .unwrap_or("")
@@ -108,13 +105,12 @@ pub async fn process_file(path: &Path) -> Result<Option<FileMeta>, Box<dyn std::
         .unwrap_or("unknown")
         .to_string();
 
-    // Try to get image dimensions cheaply via header when possible
+    // Ensure you have the `image` crate in Cargo.toml for this to work
     let dimensions = match image::image_dimensions(path) {
         Ok((w, h)) => Some(Dimensions { width: w as u32, height: h as u32 }),
         Err(_) => None,
     };
 
-    // Convert system time to ISO string
     let modified = metadata.modified()
         .map(|time| {
             let datetime: chrono::DateTime<chrono::Utc> = time.into();
@@ -142,15 +138,15 @@ pub async fn process_file(path: &Path) -> Result<Option<FileMeta>, Box<dyn std::
         tags: vec![],
         albums: vec![],
         rating: None,
-        metadata: None, // TODO: Extract EXIF data
+        metadata: None,
     }))
 }
 
-/// Compute a quick snapshot for a folder: total eligible files and aggregated mtime.
-pub async fn compute_folder_snapshot(root: &Path) -> Result<crate::commands::FolderSnapshot, Box<dyn std::error::Error + Send + Sync>> {
+// CHANGED: Return type is now crate::models::FolderSnapshot
+pub async fn compute_folder_snapshot(root: &Path) -> Result<crate::models::FolderSnapshot, Box<dyn std::error::Error + Send + Sync>> {
     let shallow = scan_directory_shallow(root, false).await?;
-    // Aggregate mtime as a simple sum of UNIX seconds to detect changes across the set
     let mut agg: i64 = 0;
     for s in &shallow { agg = agg.wrapping_add(s.modified_sec); }
-    Ok(crate::commands::FolderSnapshot { file_count: shallow.len(), agg_mtime: agg })
+    // CHANGED: Construct crate::models::FolderSnapshot
+    Ok(crate::models::FolderSnapshot { file_count: shallow.len(), agg_mtime: agg })
 }

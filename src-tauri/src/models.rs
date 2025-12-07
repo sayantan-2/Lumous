@@ -1,14 +1,20 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct FolderSnapshot {
+    pub file_count: usize,
+    pub agg_mtime: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct FileMeta {
     pub id: String,
     pub path: String,
     pub name: String,
     pub size: i64,
-    pub modified: String, // ISO timestamp
-    pub created: String,  // ISO timestamp
+    pub modified: String,
+    pub created: String,
     pub file_type: String,
     pub dimensions: Option<Dimensions>,
     pub thumbnail_path: Option<String>,
@@ -18,13 +24,13 @@ pub struct FileMeta {
     pub metadata: Option<ImageMetadata>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Dimensions {
     pub width: u32,
     pub height: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ImageMetadata {
     pub camera_make: Option<String>,
     pub camera_model: Option<String>,
@@ -39,13 +45,13 @@ pub struct ImageMetadata {
     pub resolution: Option<Resolution>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct GpsCoordinates {
     pub latitude: f64,
     pub longitude: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Resolution {
     pub x: u32,
     pub y: u32,
@@ -86,6 +92,7 @@ pub struct Tag {
     pub created: String,
 }
 
+// REMOVED "Default" from derive to avoid conflict with manual impl below
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppSettings {
     pub theme: String,
@@ -143,7 +150,6 @@ pub struct ProgressUpdate {
     pub message: String,
 }
 
-// Legacy compatibility - keeping some old structures for now
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ThumbnailInfo {
     pub id: i64,
