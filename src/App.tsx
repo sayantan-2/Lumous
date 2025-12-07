@@ -18,13 +18,13 @@ function App() {
   const [indexingProgress, setIndexingProgress] = useState<string>("");
   // Removed includedFolders concept; we now show only the selected folder
   const [isSidebarSlim, setIsSidebarSlim] = useState(false);
-  const [sortKey, setSortKey] = useState<'name'|'date'|'size'>('name');
-  const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc');
+  const [sortKey, setSortKey] = useState<'name' | 'date' | 'size'>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const queryClient = useQueryClient();
   const [toastOpen, setToastOpen] = useState(false);
   const [toastTitle, setToastTitle] = useState("");
   const [toastDesc, setToastDesc] = useState<string | undefined>(undefined);
-  const [toastVariant, setToastVariant] = useState<"default"|"success"|"error"|"warning"|"info">("default");
+  const [toastVariant, setToastVariant] = useState<"default" | "success" | "error" | "warning" | "info">("default");
   // UI control: images per row (null -> auto by size). Persist locally only.
   const [imagesPerRow, setImagesPerRow] = useState<number | null>(() => {
     const raw = localStorage.getItem("lg.imagesPerRow");
@@ -42,7 +42,7 @@ function App() {
     }
   };
 
-  
+
 
   // Restore full library state (last selected + included folders) once on mount
   useEffect(() => {
@@ -92,10 +92,10 @@ function App() {
         if (selectedFolder) {
           queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
         }
-  setToastTitle("Sync complete");
-  setToastDesc(undefined);
-  setToastVariant("success");
-  setToastOpen(true);
+        setToastTitle("Sync complete");
+        setToastDesc(undefined);
+        setToastVariant("success");
+        setToastOpen(true);
       });
 
       // New summary event with change counts
@@ -110,10 +110,10 @@ function App() {
             queryClient.invalidateQueries({ queryKey: ["files", selectedFolder] });
           }
         }
-  setToastTitle("Sync complete");
-  setToastDesc(`${payload.upserted} updated • ${payload.deleted} removed`);
-  setToastVariant("success");
-  setToastOpen(true);
+        setToastTitle("Sync complete");
+        setToastDesc(`${payload.upserted} updated • ${payload.deleted} removed`);
+        setToastVariant("success");
+        setToastOpen(true);
       });
 
       // Listen for individual file indexed (for real-time updates)
@@ -182,10 +182,10 @@ function App() {
         startedUnlisten();
         completedUnlisten();
         completedSummaryUnlisten();
-  fileIndexedUnlisten();
-  batchUnlisten();
-  updatedUnlisten();
-+        libraryUpdatedUnlisten();
+        fileIndexedUnlisten();
+        batchUnlisten();
+        updatedUnlisten();
+        +        libraryUpdatedUnlisten();
       };
     };
 
@@ -268,14 +268,14 @@ function App() {
     );
   });
   // Sort according to sortKey/sortDir
-  const files = useMemo(()=> {
+  const files = useMemo(() => {
     let base: FileMeta[];
     if (sortKey === 'name') {
       base = naturalSortFiles(filtered);
     } else if (sortKey === 'date') {
-      base = [...filtered].sort((a,b)=> (new Date(a.modified).getTime() - new Date(b.modified).getTime()));
+      base = [...filtered].sort((a, b) => (new Date(a.modified).getTime() - new Date(b.modified).getTime()));
     } else { // size
-      base = [...filtered].sort((a,b)=> a.size - b.size);
+      base = [...filtered].sort((a, b) => a.size - b.size);
     }
     if (sortDir === 'desc') base.reverse();
     return base;
@@ -290,21 +290,21 @@ function App() {
 
       // Set new folder immediately to show it in UI
       setSelectedFolder(folderPath);
-  invoke("update_last_selected_folder", { folder: folderPath }).catch(() => {});
+      invoke("update_last_selected_folder", { folder: folderPath }).catch(() => { });
 
       // Check if folder is already indexed
       const isAlreadyIndexed = await invoke("is_folder_indexed", { folderPath: folderPath });
       if (!isAlreadyIndexed) {
         // Fire-and-forget streaming indexing process; UI stays responsive
         console.log("Starting streaming indexing (background)...");
-        invoke("index_folder_streaming", { root: folderPath, recursive: false }).catch((e)=>{
+        invoke("index_folder_streaming", { root: folderPath, recursive: false }).catch((e) => {
           console.error("Indexing failed to start", e);
         });
       }
 
       // Start backend filesystem watcher for this folder (best-effort, idempotent)
       try {
-        invoke("watch_folder", { folderPath: folderPath }).catch(() => {});
+        invoke("watch_folder", { folderPath: folderPath }).catch(() => { });
       } catch (e) {
         console.warn("Failed to start folder watcher", e);
       }
@@ -334,59 +334,59 @@ function App() {
   }
 
   return (
-  <ToastProvider>
-  <div className="flex h-screen bg-background text-foreground">
-      <Sidebar
-        currentView={currentView}
-        onViewChange={setCurrentView}
-        folderPath={selectedFolder}
-        onFolderSelect={handleFolderSelect}
-        isIndexing={isIndexing}
-        indexingProgress={indexingProgress}
-        isSlim={isSidebarSlim}
-        onToggleSlim={() => setIsSidebarSlim(!isSidebarSlim)}
-      />
-
-  <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-        <TopBar
+    <ToastProvider>
+      <div className="flex h-screen bg-background text-foreground">
+        <Sidebar
+          currentView={currentView}
+          onViewChange={setCurrentView}
           folderPath={selectedFolder}
-          onFolderChange={handleFolderSelect}
-          fileCount={files.length}
-          onSearch={handleSearch}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onChangeSortKey={setSortKey}
-          onChangeSortDir={() => setSortDir(d=> d==='asc'?'desc':'asc')}
-          imagesPerRow={imagesPerRow}
-          onDecPerRow={() => updateImagesPerRow(Math.max(1, (imagesPerRow ?? Math.max(1, Math.floor((window.innerWidth||1200)/((settings?.thumbnailSize||200)+12)))) ) - 1)}
-          onIncPerRow={() => updateImagesPerRow((imagesPerRow ?? Math.max(1, Math.floor((window.innerWidth||1200)/((settings?.thumbnailSize||200)+12)))) + 1)}
+          onFolderSelect={handleFolderSelect}
+          isIndexing={isIndexing}
+          indexingProgress={indexingProgress}
+          isSlim={isSidebarSlim}
+          onToggleSlim={() => setIsSidebarSlim(!isSidebarSlim)}
         />
 
-  <main className="flex-1 overflow-hidden min-h-0 flex">
-          {filesError ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <h2 className="text-xl font-semibold mb-2">Error loading files</h2>
-                <p className="text-muted-foreground">
-                  {filesError instanceof Error ? filesError.message : "Unknown error"}
-                </p>
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <TopBar
+            folderPath={selectedFolder}
+            onFolderChange={handleFolderSelect}
+            fileCount={files.length}
+            onSearch={handleSearch}
+            sortKey={sortKey}
+            sortDir={sortDir}
+            onChangeSortKey={setSortKey}
+            onChangeSortDir={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+            imagesPerRow={imagesPerRow}
+            onDecPerRow={() => updateImagesPerRow(Math.max(1, (imagesPerRow ?? Math.max(1, Math.floor((window.innerWidth || 1200) / ((settings?.thumbnailSize || 200) + 12))))) - 1)}
+            onIncPerRow={() => updateImagesPerRow((imagesPerRow ?? Math.max(1, Math.floor((window.innerWidth || 1200) / ((settings?.thumbnailSize || 200) + 12)))) + 1)}
+          />
+
+          <main className="flex-1 overflow-hidden min-h-0 flex">
+            {filesError ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <h2 className="text-xl font-semibold mb-2">Error loading files</h2>
+                  <p className="text-muted-foreground">
+                    {filesError instanceof Error ? filesError.message : "Unknown error"}
+                  </p>
+                </div>
               </div>
-            </div>
-          ) : (
-            <FileGrid
-              files={files}
-              isLoading={filesLoading}
-              thumbnailSize={settings?.thumbnailSize || 200}
-              loadingMessage={filesLoading ? "Loading images..." : ""}
-              isSidebarSlim={isSidebarSlim}
-              imagesPerRow={imagesPerRow}
-            />
-          )}
-        </main>
+            ) : (
+              <FileGrid
+                files={files}
+                isLoading={filesLoading}
+                thumbnailSize={settings?.thumbnailSize || 200}
+                loadingMessage={filesLoading ? "Loading images..." : ""}
+                isSidebarSlim={isSidebarSlim}
+                imagesPerRow={imagesPerRow}
+              />
+            )}
+          </main>
+        </div>
       </div>
-  </div>
-  <AppToast title={toastTitle} description={toastDesc} variant={toastVariant} open={toastOpen} onOpenChange={setToastOpen} />
-  </ToastProvider>
+      <AppToast title={toastTitle} description={toastDesc} variant={toastVariant} open={toastOpen} onOpenChange={setToastOpen} />
+    </ToastProvider>
   );
 }
 

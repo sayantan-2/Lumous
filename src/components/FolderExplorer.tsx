@@ -279,7 +279,7 @@ function FolderTreeItem({ node, selectedFolder, onSelect, depth, condensed, coll
                 <RefreshCcw className="w-4 h-4" />
                 <span>Re-index</span>
               </DropdownItem>
-              <DropdownItem onSelect={() => { invoke("watch_folder", { folderPath: node.path }).catch(()=>{}); }}>
+              <DropdownItem onSelect={() => { invoke("watch_folder", { folderPath: node.path }).catch(() => { }); }}>
                 <Eye className="w-4 h-4" />
                 <span>Watch folder</span>
               </DropdownItem>
