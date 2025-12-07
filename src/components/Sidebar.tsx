@@ -77,6 +77,17 @@ export function Sidebar({
   const handleToggleSlim = () => onToggleSlim();
   const [resetting, setResetting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [collapseToken, setCollapseToken] = useState(0);
+
+  function CollapseAllIcon({ className }: { className?: string }) {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" opacity="0.95" />
+        <rect x="7" y="7" width="6" height="3" rx="0.6" fill="currentColor" />
+        <rect x="7" y="12" width="10" height="2" rx="0.6" fill="currentColor" opacity="0.9" />
+      </svg>
+    );
+  }
 
   const handleReset = async () => {
     try {
@@ -133,9 +144,14 @@ export function Sidebar({
             {!isSlim && (
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Folders</span>
-                <Button variant="ghost" size="icon" className="h-6 w-6" title="Add folder" onClick={handleBrowseNewFolder}>
-                  <Plus className="w-3 h-3" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title="Collapse all folders" onClick={() => setCollapseToken(t => t + 1)}>
+                    <CollapseAllIcon className="w-3 h-3" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" title="Add folder" onClick={handleBrowseNewFolder}>
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                </div>
               </div>
             )}
             <FolderExplorer
@@ -143,6 +159,7 @@ export function Sidebar({
               selectedFolder={folderPath}
               onFolderSelect={onFolderSelect}
               condensed={isSlim}
+              collapseAllToken={collapseToken}
             />
           </div>
           {/* Filters removed as requested */}

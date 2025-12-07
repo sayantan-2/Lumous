@@ -26,6 +26,7 @@ interface FolderExplorerProps {
   selectedFolder: string;
   onFolderSelect: (folderPath: string) => void;
   condensed?: boolean;
+  collapseAllToken?: number;
 }
 
 // --- Logic ---
@@ -131,6 +132,7 @@ export function FolderExplorer({
   selectedFolder,
   onFolderSelect,
   condensed = false,
+  collapseAllToken,
 }: FolderExplorerProps) {
   const treeRoots = useMemo(() => buildAncestryTree(folders), [folders]);
 
@@ -150,6 +152,7 @@ export function FolderExplorer({
             onSelect={onFolderSelect}
             depth={0}
             condensed={condensed}
+            collapseAllToken={collapseAllToken}
           />
         ))}
       </div>
@@ -164,9 +167,10 @@ interface TreeItemProps {
   onSelect: (path: string) => void;
   depth: number;
   condensed: boolean;
+  collapseAllToken?: number;
 }
 
-function FolderTreeItem({ node, selectedFolder, onSelect, depth, condensed }: TreeItemProps) {
+function FolderTreeItem({ node, selectedFolder, onSelect, depth, condensed, collapseAllToken }: TreeItemProps) {
   const isSelected = !node.isVirtual && node.path.toLowerCase() === selectedFolder.toLowerCase();
 
   const hasSelectedChild = selectedFolder.toLowerCase().startsWith(node.path.toLowerCase()) &&
@@ -180,6 +184,14 @@ function FolderTreeItem({ node, selectedFolder, onSelect, depth, condensed }: Tr
   useEffect(() => {
     if (hasSelectedChild) setIsOpen(true);
   }, [hasSelectedChild]);
+
+  // Collapse all when token changes
+  useEffect(() => {
+    if (typeof collapseAllToken !== "undefined") {
+      setIsOpen(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collapseAllToken]);
 
   const hasChildren = node.children.length > 0;
 
@@ -287,6 +299,7 @@ function FolderTreeItem({ node, selectedFolder, onSelect, depth, condensed }: Tr
                 onSelect={onSelect}
                 depth={depth + 1}
                 condensed={condensed}
+                collapseAllToken={collapseAllToken}
               />
             </div>
           ))}
